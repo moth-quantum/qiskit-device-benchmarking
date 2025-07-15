@@ -4,6 +4,8 @@ from qiskit.result import Result
 from qiskit.result.models import ExperimentResult, ExperimentResultData
 from qiskit.providers import JobV1
 from qiskit.providers.jobstatus import JobStatus
+from qiskit.transpiler import Target, InstructionProperties
+from qiskit.circuit.library import *
 
 from qiskit_aer.noise import pauli_error
 
@@ -89,12 +91,33 @@ class NoisyStimBackend(GenericBackendV2):
                 for k in range(j+1, num_qubits):
                     coupling_map.append((j,k))
 
+        one_qubit_props = {(q,): InstructionProperties() for q in range(num_qubits)}
+        two_qubit_props = {}
+        for pair in coupling_map:
+            two_qubit_props[tuple(pair)] = InstructionProperties()
+
+        target = Target(num_qubits=num_qubits)
+        target.add_instruction(IGate(), one_qubit_props)
+        target.add_instruction(XGate(), one_qubit_props)
+        target.add_instruction(HGate(), one_qubit_props)
+        target.add_instruction(SGate(), one_qubit_props)
+        target.add_instruction(SdgGate(), one_qubit_props)
+        target.add_instruction(Measure(), one_qubit_props)
+        target.add_instruction(CXGate(), two_qubit_props)
+        target.add_instruction(CZGate(), two_qubit_props)
+
         super().__init__(
             num_qubits,
             basis_gates,
             coupling_map=coupling_map,
             noise_info = (p1>0 or p2>0 or pm>0)
             )
+        
+        self._target = target
+
+    @property
+    def target(self):
+        return self._target
             
     def _noisify_circuits(self, qcs):
 
