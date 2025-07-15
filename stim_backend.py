@@ -97,14 +97,25 @@ class NoisyStimBackend(GenericBackendV2):
             two_qubit_props[tuple(pair)] = InstructionProperties()
 
         target = Target(num_qubits=num_qubits)
-        target.add_instruction(IGate(), one_qubit_props)
-        target.add_instruction(XGate(), one_qubit_props)
-        target.add_instruction(HGate(), one_qubit_props)
-        target.add_instruction(SGate(), one_qubit_props)
-        target.add_instruction(SdgGate(), one_qubit_props)
         target.add_instruction(Measure(), one_qubit_props)
-        target.add_instruction(CXGate(), two_qubit_props)
-        target.add_instruction(CZGate(), two_qubit_props)
+        if 'id' in basis_gates:
+            target.add_instruction(IGate(), one_qubit_props)
+        if 'x' in basis_gates:
+            target.add_instruction(XGate(), one_qubit_props)
+        if 'y' in basis_gates:
+            target.add_instruction(YGate(), one_qubit_props)
+        if 'z' in basis_gates:
+            target.add_instruction(ZGate(), one_qubit_props)
+        if 'h' in basis_gates:
+            target.add_instruction(HGate(), one_qubit_props)
+        if 's' in basis_gates:
+            target.add_instruction(SGate(), one_qubit_props)
+        if 'sdg' in basis_gates:
+            target.add_instruction(SdgGate(), one_qubit_props)
+        if 'cx' in basis_gates:
+            target.add_instruction(CXGate(), two_qubit_props)
+        if 'cz' in basis_gates:
+            target.add_instruction(CZGate(), two_qubit_props)
 
         super().__init__(
             num_qubits,
