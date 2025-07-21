@@ -1,0 +1,5 @@
+{
+    "python.analysis.extraPaths": [
+        "./qiskit_device_benchmarking/bench_code/mrb"
+    ]
+}

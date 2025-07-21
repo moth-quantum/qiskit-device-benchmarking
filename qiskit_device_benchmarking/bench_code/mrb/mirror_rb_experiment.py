@@ -406,6 +406,12 @@ class MirrorRB(StandardRB):
                 qc.rx(theta, 0)
             qc = transpile(qc, basis_gates=basis_gates, optimization_level=3)
             qrx.append(qc)
+        """qrx = []
+        for theta in self._angles:
+            qc = QuantumCircuit(1)
+            qc.rx(theta, 0)
+            qc = transpile(qc, basis_gates=basis_gates, optimization_level=3)
+            qrx.append(qc)"""
 
         circuits = []
         for i, seq in enumerate(sequences):
