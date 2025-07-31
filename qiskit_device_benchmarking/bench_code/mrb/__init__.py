@@ -27,4 +27,5 @@ Classes
 from .mirror_qv import MirrorQuantumVolume
 from .mirror_qv_analysis import MirrorQuantumVolumeAnalysis
 from .mirror_rb_experiment import MirrorRB
+from .mirror_rb_experiment_new import MirrorRB as MirrorRBnew
 from .mirror_rb_analysis import MirrorRBAnalysis
