@@ -12,6 +12,7 @@
 """
 Mirror RB Experiment class.
 """
+
 import warnings
 from typing import Union, Iterable, Optional, List, Sequence, Tuple
 from numbers import Integral
@@ -28,7 +29,15 @@ from qiskit.providers.options import Options
 from qiskit.exceptions import QiskitError
 from qiskit.transpiler import CouplingMap, PassManager, InstructionDurations
 from qiskit import transpile
-from qiskit.circuit.library import CXGate, CYGate, CZGate, ECRGate, SwapGate, XGate, RZGate
+from qiskit.circuit.library import (
+    CXGate,
+    CYGate,
+    CZGate,
+    ECRGate,
+    SwapGate,
+    XGate,
+    RZGate,
+)
 from qiskit.transpiler.passes import (
     ALAPScheduleAnalysis,
     PadDynamicalDecoupling,
@@ -49,6 +58,7 @@ from .mirror_rb_analysis import MirrorRBAnalysis
 from qiskit_device_benchmarking.utilities.clifford_utils import compute_target_bitstring
 from qiskit_device_benchmarking.utilities.sampling_utils import (
     EdgeGrabSampler,
+    MatchingSampler,
     SingleQubitSampler,
     GateInstruction,
     GateDistribution,
@@ -97,7 +107,7 @@ class MirrorRB(StandardRB):
 
     """
 
-    sampler_map = {"edge_grab": EdgeGrabSampler, "single_qubit": SingleQubitSampler}
+    sampler_map = {"edge_grab": EdgeGrabSampler, "matching": MatchingSampler, "single_qubit": SingleQubitSampler}
 
     # pylint: disable=dangerous-default-value
     def __init__(
@@ -175,7 +185,9 @@ class MirrorRB(StandardRB):
             inverting_pauli_layer=inverting_pauli_layer,
         )
 
-        self._distribution = self.sampler_map.get(sampling_algorithm)(seed=seed, **sampler_opts)
+        self._distribution = self.sampler_map.get(sampling_algorithm)(
+            seed=seed, **sampler_opts
+        )
         self.analysis = MirrorRBAnalysis()
         self._two_qubit_gate = two_qubit_gate
         self._angles = [initial_entangling_angle, final_entangling_angle]
@@ -232,10 +244,9 @@ class MirrorRB(StandardRB):
         based on experiment options. This method is currently implemented
         for the default "edge_grab" sampler."""
 
-        if self.experiment_options.sampling_algorithm != "edge_grab":
+        if self.experiment_options.sampling_algorithm not in ["edge_grab", "matching"]:
             raise QiskitError(
-                "Unsupported sampling algorithm provided. You must implement"
-                "a custom `_set_distribution_options` method."
+                "Unsupported sampling algorithm provided."
             )
 
         self._distribution.seed = self.experiment_options.seed
@@ -257,11 +268,14 @@ class MirrorRB(StandardRB):
             adjusted_2q_density = self.experiment_options.two_qubit_gate_density
 
         if adjusted_2q_density > 1:
-            warnings.warn("Two-qubit gate density is too high, capping at 1.")
+            if self.experiment_options.two_qubit_gate_density > 1:
+                warnings.warn("Two-qubit gate density is too high, capping at 1.")
             adjusted_2q_density = 1
 
         self._distribution.gate_distribution = [
-            GateDistribution(prob=adjusted_2q_density, op=self.experiment_options.two_qubit_gate),
+            GateDistribution(
+                prob=adjusted_2q_density, op=self.experiment_options.two_qubit_gate
+            ),
             GateDistribution(prob=1 - adjusted_2q_density, op=GenericClifford(1)),
         ]
 
@@ -296,11 +310,15 @@ class MirrorRB(StandardRB):
 
         if self.experiment_options.pauli_randomize:
             pauli_sampler = SingleQubitSampler(seed=self.experiment_options.seed)
-            pauli_sampler.gate_distribution = [GateDistribution(prob=1, op=GenericPauli(1))]
+            pauli_sampler.gate_distribution = [
+                GateDistribution(prob=1, op=GenericPauli(1))
+            ]
 
         if self.experiment_options.start_end_clifford:
             clifford_sampler = SingleQubitSampler(seed=self.experiment_options.seed)
-            clifford_sampler.gate_distribution = [GateDistribution(prob=1, op=GenericClifford(1))]
+            clifford_sampler.gate_distribution = [
+                GateDistribution(prob=1, op=GenericClifford(1))
+            ]
 
         sequences = []
 
@@ -327,15 +345,21 @@ class MirrorRB(StandardRB):
 
                 # Interleave random Paulis if set by user
                 if self.experiment_options.pauli_randomize:
-                    pauli_layers = list(pauli_sampler(range(self.num_qubits), length=seqlen + 1))
+                    pauli_layers = list(
+                        pauli_sampler(range(self.num_qubits), length=seqlen + 1)
+                    )
                     seq = list(itertools.chain(*zip(pauli_layers[:-1], seq)))
                     seq.append(pauli_layers[-1])
                     if not self.experiment_options.full_sampling:
-                        build_seq_lengths = [length * 2 + 1 for length in build_seq_lengths]
+                        build_seq_lengths = [
+                            length * 2 + 1 for length in build_seq_lengths
+                        ]
 
                 # Add start and end cliffords if set by user
                 if self.experiment_options.start_end_clifford:
-                    clifford_layers = list(clifford_sampler(range(self.num_qubits), length=1))
+                    clifford_layers = list(
+                        clifford_sampler(range(self.num_qubits), length=1)
+                    )
                     seq.insert(0, clifford_layers[0])
                     seq.append(self._inverse_layer(clifford_layers[0]))
                     if not self.experiment_options.full_sampling:
@@ -438,7 +462,9 @@ class MirrorRB(StandardRB):
 
             circ.metadata = {
                 "xval": int(
-                    self.experiment_options.lengths[i % len(self.experiment_options.lengths)]
+                    self.experiment_options.lengths[
+                        i % len(self.experiment_options.lengths)
+                    ]
                 ),
                 "target": compute_target_bitstring(circ_target),
                 "inverting_pauli_layer": self.experiment_options.inverting_pauli_layer,
@@ -480,7 +506,8 @@ class MirrorRB(StandardRB):
         self, layer: List[Tuple[GateInstruction, ...]]
     ) -> List[Tuple[GateInstruction, ...]]:
         """Generates the inverse layer of a Clifford mirror RB layer by inverting the
-        single-qubit Cliffords and keeping the two-qubit gate identical. See
+        single-qubit Cliffords and keeping the two-qubit gate identical. If the layer
+        contains both, it is assumed that two-qubit gates come first. See
         :class:`.BaseSampler` for the format of the layer.
 
         Args:
@@ -493,12 +520,13 @@ class MirrorRB(StandardRB):
             QiskitError: If the layer has invalid format.
         """
         inverse_layer = []
-        for elem in layer:
+        for elem in layer: # first single qubit
             if len(elem.qargs) == 1 and np.issubdtype(type(elem.op), int):
                 inverse_layer.append(GateInstruction(elem.qargs, inverse_1q(elem.op)))
-            elif len(elem.qargs) == 2 and elem.op in _self_adjoint_gates:
+        for elem in layer: # then two qubit qubit
+            if len(elem.qargs) == 2 and elem.op in _self_adjoint_gates:
                 inverse_layer.append(elem)
-            else:
+            elif not (len(elem.qargs) == 1 and np.issubdtype(type(elem.op), int)):
                 try:
                     inverse_layer.append(GateInstruction(elem.qargs, elem.op.inverse()))
                 except TypeError as exc:
