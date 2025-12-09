@@ -1,6 +1,6 @@
 # An topological, non-local approach to our `mirror-qa` and `mirror-qb`
 
-The `topo` branch is introduced to store codes for `Mirror Quantum Awesomeness`' topological approacth to quantum device benchmarking. Its goals are two.
+The `topo` branch is introduced to store codes for `Mirror Quantum Awesomeness`' topological approach to quantum device benchmarking. Its goals are two.
 - Use the square lattice for benchmarking (Rigetti for the most)
 - Upgrade the algorithm to track global error rate and 'topologically-protected' information
   
