@@ -389,13 +389,13 @@ class Cliffordize:
         at the beginning and end of the circuit. To do is add checking that this is the case
         """
 
-        # In a future version of the code will make sure the 
-        # circuit ordering is structured in such a way that the 
+        # In a future version of the code will make sure the
+        # circuit ordering is structured in such a way that the
         # layering will be more obvious
         self.circuit = self.circ_to_layers(self.base_circuit)
 
-        #convert a circuit which is singles and 2Q gates into
-        #parameterized form
+        # convert a circuit which is singles and 2Q gates into
+        # parameterized form
         pm = PassManager([SingleDecompPass()])
         self.circuit = pm.run(self.circuit)
 
@@ -424,8 +424,8 @@ class Cliffordize:
         if self.observables is None or self.bindings is None:
             raise ValueError("Cannot run to_pub without first running random_cliff")
 
-        if 'optimization_level' not in kwargs:
-            kwargs['optimization_level'] = 1
+        if "optimization_level" not in kwargs:
+            kwargs["optimization_level"] = 1
 
         circuit = transpile(circuit, **kwargs)
 
@@ -457,8 +457,8 @@ class Cliffordize:
         circuit_internal = copy.deepcopy(self.circuit)
         circuit_internal.measure_all()
 
-        if 'optimization_level' not in kwargs:
-            kwargs['optimization_level'] = 1
+        if "optimization_level" not in kwargs:
+            kwargs["optimization_level"] = 1
 
         circuit_internal = transpile(circuit_internal, **kwargs)
         sampler_input = (circuit_internal, self.bindings)
@@ -557,9 +557,9 @@ def readout_circuit(nq, chain, depth, output=None):
 
     # do sxd to return back to |0>
     for q in range(nq):
-        circuit.rz(-np.pi,q)
+        circuit.rz(-np.pi, q)
         circuit.sx(q)
-        circuit.rz(-np.pi,q)
+        circuit.rz(-np.pi, q)
 
     # if there is a target bitstring then do pi pulses
     # on the relevant qubits

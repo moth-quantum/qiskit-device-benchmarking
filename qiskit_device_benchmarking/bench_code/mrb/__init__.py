@@ -36,5 +36,5 @@ __all__ = [
     MirrorRB,
     MirrorRBAnalysis,
     MirrorQA,
-    QuantumAwesomeness
+    QuantumAwesomeness,
 ]

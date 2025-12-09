@@ -268,7 +268,7 @@ class _ComputeQuantities(DataAction):
         self._target_bs = target_bs
 
     def _rewrite_string(string, index):
-        '''Returns string unchanged. Will be overwritten for Mirror QA'''
+        """Returns string unchanged. Will be overwritten for Mirror QA"""
         return string
 
     def _process(self, data: np.ndarray):

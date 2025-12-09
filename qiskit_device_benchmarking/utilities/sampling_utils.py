@@ -313,7 +313,7 @@ class EdgeGrabSampler(BaseSampler):
         gate_distribution=None,
         coupling_map: Optional[Union[List[List[int]], CouplingMap]] = None,
         seed: Optional[Union[int, SeedSequence, BitGenerator, Generator]] = None,
-        matching=False
+        matching=False,
     ) -> None:
         """Initializes the sampler.
 
@@ -402,7 +402,9 @@ class EdgeGrabSampler(BaseSampler):
                 for u, v in edges:
                     w = self._rng.integers(1, 100)
                     G.add_edge(u, v, weight=w)
-                matching = nx.algorithms.matching.max_weight_matching(G, maxcardinality=True)
+                matching = nx.algorithms.matching.max_weight_matching(
+                    G, maxcardinality=True
+                )
                 for edge in matching:
                     if edge in edges:
                         selected_edges.append(edge)
@@ -471,6 +473,7 @@ class EdgeGrabSampler(BaseSampler):
                     )
             yield tuple(layer)
 
+
 class MatchingSampler(EdgeGrabSampler):
     r"""A sampler that uses maximum weight matching for sampling gate layers.
 
@@ -492,6 +495,7 @@ class MatchingSampler(EdgeGrabSampler):
     circuit size increases.
 
     """
+
     def __init__(
         self,
         gate_distribution=None,
@@ -502,5 +506,5 @@ class MatchingSampler(EdgeGrabSampler):
             gate_distribution=gate_distribution,
             coupling_map=coupling_map,
             seed=seed,
-            matching=True
+            matching=True,
         )

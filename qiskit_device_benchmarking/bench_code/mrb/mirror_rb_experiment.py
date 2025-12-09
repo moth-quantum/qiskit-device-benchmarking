@@ -107,7 +107,11 @@ class MirrorRB(StandardRB):
 
     """
 
-    sampler_map = {"edge_grab": EdgeGrabSampler, "matching": MatchingSampler, "single_qubit": SingleQubitSampler}
+    sampler_map = {
+        "edge_grab": EdgeGrabSampler,
+        "matching": MatchingSampler,
+        "single_qubit": SingleQubitSampler,
+    }
 
     # pylint: disable=dangerous-default-value
     def __init__(
@@ -245,9 +249,7 @@ class MirrorRB(StandardRB):
         for the default "edge_grab" sampler."""
 
         if self.experiment_options.sampling_algorithm not in ["edge_grab", "matching"]:
-            raise QiskitError(
-                "Unsupported sampling algorithm provided."
-            )
+            raise QiskitError("Unsupported sampling algorithm provided.")
 
         self._distribution.seed = self.experiment_options.seed
 
@@ -377,13 +379,13 @@ class MirrorRB(StandardRB):
         # Reverse order of Clifford layers if entangling pairs used
         if not self.experiment_options.full_sampling and any(self._angles):
             for s, sequence in enumerate(sequences):
-                hsl = (len(sequence)-1)//2
+                hsl = (len(sequence) - 1) // 2
                 reordered_sequence = []
                 for j in range(len(sequence)):
-                    h = (j > hsl)
-                    if j%2: # cliffords
-                        reordered_sequence.append(sequence[hsl-j-h])
-                    else: # paulis
+                    h = j > hsl
+                    if j % 2:  # cliffords
+                        reordered_sequence.append(sequence[hsl - j - h])
+                    else:  # paulis
                         reordered_sequence.append(sequence[j])
                 sequences[s] = reordered_sequence
 
@@ -413,7 +415,7 @@ class MirrorRB(StandardRB):
             A list of RB circuits.
         """
         basis_gates = tuple(self.backend.operation_names)
-        
+
         # transpile 2q gates
         qc2q = QuantumCircuit(2)
         qc2q.append(self._two_qubit_gate, [0, 1])
@@ -422,7 +424,7 @@ class MirrorRB(StandardRB):
         qrx = []
         for theta in self._angles:
             qc = QuantumCircuit(1)
-            if theta == pi/2:
+            if theta == pi / 2:
                 qc.h(0)
                 qc.s(0)
                 qc.h(0)
@@ -440,7 +442,7 @@ class MirrorRB(StandardRB):
                 for elem in layer:
                     instr = self._to_instruction(elem.op)
                     qargs = elem.qargs
-                    if l == (len(seq) - 2) and instr.name == 'cx':
+                    if l == (len(seq) - 2) and instr.name == "cx":
                         if self._angles[1]:
                             circ.compose(qrx[1], [qargs[0]], inplace=True)
                     if len(qargs) == 2:
@@ -448,7 +450,7 @@ class MirrorRB(StandardRB):
                         circ.compose(qc2q, qargs, inplace=True)
                     else:
                         circ.append(self._to_instruction(elem.op, basis_gates), qargs)
-                    if l == 1 and instr.name == 'cx':
+                    if l == 1 and instr.name == "cx":
                         if self._angles[0]:
                             circ.compose(qrx[0], [qargs[0]], inplace=True)
                     circ_target.append(instr, elem.qargs)
@@ -514,10 +516,10 @@ class MirrorRB(StandardRB):
             QiskitError: If the layer has invalid format.
         """
         inverse_layer = []
-        for elem in layer: # first single qubit
+        for elem in layer:  # first single qubit
             if len(elem.qargs) == 1 and np.issubdtype(type(elem.op), int):
                 inverse_layer.append(GateInstruction(elem.qargs, inverse_1q(elem.op)))
-        for elem in layer: # then two qubit qubit
+        for elem in layer:  # then two qubit qubit
             if len(elem.qargs) == 2 and elem.op in _self_adjoint_gates:
                 inverse_layer.append(elem)
             elif not (len(elem.qargs) == 1 and np.issubdtype(type(elem.op), int)):

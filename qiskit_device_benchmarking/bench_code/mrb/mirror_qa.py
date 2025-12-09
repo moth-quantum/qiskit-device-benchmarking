@@ -12,6 +12,7 @@
 """
 Mirror QA Experiment class.
 """
+
 from typing import Union, Iterable, Optional, List, Sequence
 import itertools
 import numpy as np
@@ -83,7 +84,7 @@ class MirrorQA(MirrorRB):
         backend: Optional[Backend] = None,
         seed: Optional[Union[int, SeedSequence, BitGenerator, Generator]] = None,
         inverting_pauli_layer: bool = False,
-        initial_entangling_angle: float = pi/2,
+        initial_entangling_angle: float = pi / 2, # The difference between mirror_qb and mirror_qa
         final_entangling_angle: float = 0,
         analyzed_quantity: str = "Effective Polarization",
     ):
@@ -135,14 +136,14 @@ class MirrorQA(MirrorRB):
             inverting_pauli_layer=inverting_pauli_layer,
             full_sampling=False,
             start_end_clifford=False,
-            initial_entangling_angle = initial_entangling_angle,
-            final_entangling_angle = final_entangling_angle,
+            initial_entangling_angle=initial_entangling_angle,
+            final_entangling_angle=final_entangling_angle,
         )
 
         self.analysis = MirrorQAAnalysis()
 
-class MirrorQAAnalysis(MirrorRBAnalysis):
 
+class MirrorQAAnalysis(MirrorRBAnalysis):
     @classmethod
     def _default_options(cls):
         default_options = super()._default_options()
@@ -153,7 +154,7 @@ class MirrorQAAnalysis(MirrorRBAnalysis):
                 "Success Probability",
                 "Adjusted Success Probability",
                 "Effective Polarization",
-                "Mutual Information"
+                "Mutual Information",
             ],
         )
         return default_options
@@ -195,6 +196,7 @@ class MirrorQAAnalysis(MirrorRBAnalysis):
             )
         )
 
+
 class _ComputeQAQuantities(_ComputeQuantities):
     """Data processing node for computing useful mirror RB quantities from raw results."""
 
@@ -215,92 +217,89 @@ class _ComputeQAQuantities(_ComputeQuantities):
             validate: If set to False the DataAction will not validate its input.
         """
         super().__init__(
-            num_qubits = num_qubits,
-            target_bs = target_bs,
-            analyzed_quantity = analyzed_quantity,
-            validate = validate,
+            num_qubits=num_qubits,
+            target_bs=target_bs,
+            analyzed_quantity=analyzed_quantity,
+            validate=validate,
         )
         self._coupling_map = coupling_map
         self._pairs = pairs
         self._singles = singles
 
     def _rewrite_string(self, string, index):
-        '''
+        """
         Returns a string of equal length, pairs have parity on the lowest numbered qubit
         and 0 on the highest.
-        '''
-        pair_string = ["0"]*len(string)
+        """
+        pair_string = ["0"] * len(string)
         for q in self._singles[index]:
-            pair_string[-1-q] = string[-1-q]
+            pair_string[-1 - q] = string[-1 - q]
         for q0, q1 in self._pairs[index]:
-            pair_string[-1-min(q0,q1)] = str(int(string[-1-q0]!=string[-1-q1]))
-        return ''.join(pair_string)
+            pair_string[-1 - min(q0, q1)] = str(int(string[-1 - q0] != string[-1 - q1]))
+        return "".join(pair_string)
 
     def _process(self, data: np.ndarray):
         if self._analyzed_quantity == "Mutual Information":
             qa = QuantumAwesomeness(self._coupling_map)
-            mutual_infos = qa.mean_mutual_info(data,self._pairs)
+            mutual_infos = qa.mean_mutual_info(data, self._pairs)
             y_data = []
             y_data_unc = []
-            for mi in mutual_infos['paired']:
+            for mi in mutual_infos["paired"]:
                 y_data.append(mi)
                 y_data_unc.append(0)
             return unp.uarray(y_data, y_data_unc)
         else:
             return super()._process(data)
 
-class QuantumAwesomeness():
-    def __init__(
-            self,
-            coupling_map
-    ):
-        self._coupling_map= coupling_map
+
+class QuantumAwesomeness:
+    def __init__(self, coupling_map):
+        self._coupling_map = coupling_map
 
     def mutual_info(self, data: np.ndarray):
-
         mutual_infos = []
         for circ_data in data:
-            if 'counts' not in circ_data:
+            if "counts" not in circ_data:
                 counts = circ_data
             else:
-                counts = circ_data['counts']
+                counts = circ_data["counts"]
             shots = sum(counts.values())
             p = {}
-            for j,k in self._coupling_map:
-                p[j,k] = {'00':0, '01':0, '10':0, '11':0}
+            for j, k in self._coupling_map:
+                p[j, k] = {"00": 0, "01": 0, "10": 0, "11": 0}
                 for string in counts:
-                    ss = string[-1-j] + string[-1-k]
-                    p[j,k][ss] += counts[string]
-                for ss in p[j,k]:
-                    p[j,k][ss] /= shots
+                    ss = string[-1 - j] + string[-1 - k]
+                    p[j, k][ss] += counts[string]
+                for ss in p[j, k]:
+                    p[j, k][ss] /= shots
 
             mi = {}
-            for j,k in self._coupling_map:
-                if j<k:
-                    ps_l = [p[j, k][b+'0']+p[j, k][b+'1'] for b in ['0', '1']]
-                    ps_r = [p[j, k]['0'+b]+p[j, k]['1'+b] for b in ['0', '1']]
-                    mi[j, k] = - entropy(list(p[j,k].values()), base=2)
+            for j, k in self._coupling_map:
+                if j < k:
+                    ps_l = [p[j, k][b + "0"] + p[j, k][b + "1"] for b in ["0", "1"]]
+                    ps_r = [p[j, k]["0" + b] + p[j, k]["1" + b] for b in ["0", "1"]]
+                    mi[j, k] = -entropy(list(p[j, k].values()), base=2)
                     for ps in [ps_l, ps_r]:
-                        mi[j,k] += entropy(ps, base=2)
+                        mi[j, k] += entropy(ps, base=2)
             mutual_infos.append(mi)
-        
+
         return mutual_infos
-            
+
     def mean_mutual_info(self, data: np.ndarray, pairs):
         mutual_infos = self.mutual_info(data)
-        mean_mi = {'paired':[], 'unpaired':[], 'singles':[]}
+        mean_mi = {"paired": [], "unpaired": [], "singles": []}
         for c, mi in enumerate(mutual_infos):
-            mean_mi['paired'].append([])
-            mean_mi['unpaired'].append([])
-            mean_mi['singles'].append([])
+            mean_mi["paired"].append([])
+            mean_mi["unpaired"].append([])
+            mean_mi["singles"].append([])
             all_paired = set(itertools.chain.from_iterable(pairs[c]))
             for pair, value in mi.items():
                 if tuple(pair) in pairs[c] or tuple(pair[::-1]) in pairs[c]:
-                    mean_mi['paired'][-1].append(value)
+                    mean_mi["paired"][-1].append(value)
                 elif not set(pair).intersection(all_paired):
-                    mean_mi['singles'][-1].append(value)
+                    mean_mi["singles"][-1].append(value)
                 else:
-                    mean_mi['unpaired'][-1].append(value)
+                    mean_mi["unpaired"][-1].append(value)
             for ps in mean_mi:
                 if mean_mi[ps][-1]:
                     mean_mi[ps][-1] = np.mean(mean_mi[ps][-1])
