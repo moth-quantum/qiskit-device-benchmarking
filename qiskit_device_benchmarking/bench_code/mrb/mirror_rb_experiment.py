@@ -59,6 +59,7 @@ from qiskit_device_benchmarking.utilities.clifford_utils import compute_target_b
 from qiskit_device_benchmarking.utilities.sampling_utils import (
     EdgeGrabSampler,
     MatchingSampler,
+    NewSampler,
     SingleQubitSampler,
     GateInstruction,
     GateDistribution,
@@ -111,6 +112,7 @@ class MirrorRB(StandardRB):
         "edge_grab": EdgeGrabSampler,
         "matching": MatchingSampler,
         "single_qubit": SingleQubitSampler,
+        "new": NewSampler,
     }
 
     # pylint: disable=dangerous-default-value
@@ -248,7 +250,7 @@ class MirrorRB(StandardRB):
         based on experiment options. This method is currently implemented
         for the default "edge_grab" sampler."""
 
-        if self.experiment_options.sampling_algorithm not in ["edge_grab", "matching"]:
+        if self.experiment_options.sampling_algorithm not in ["edge_grab", "matching", "new"]:
             raise QiskitError("Unsupported sampling algorithm provided.")
 
         self._distribution.seed = self.experiment_options.seed

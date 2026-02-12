@@ -508,3 +508,164 @@ class MatchingSampler(EdgeGrabSampler):
             seed=seed,
             matching=True,
         )
+
+'''
+class NewSampler(MatchingSampler):
+    def __init__(
+        self,
+        gate_distribution=None,
+        coupling_map=None,
+        seed=None,
+    ):
+        super().__init__(
+            gate_distribution=gate_distribution,
+            coupling_map=coupling_map,
+            seed=seed,
+        )
+
+    def __call__(
+        self,
+        qubits: Sequence,
+        length: int = 1,
+    ) -> Iterator[Tuple[GateInstruction]]:
+        """
+        Even layers: use EdgeGrabSampler
+        Odd layers: use MatchingSampler
+        """
+        edgegrab_sampler = EdgeGrabSampler(
+            gate_distribution=self._gate_distribution,
+            coupling_map=self.coupling_map,
+            seed=self.seed,
+            matching=False,
+        )
+        matching_sampler = MatchingSampler(
+            gate_distribution=self._gate_distribution,
+            coupling_map=self.coupling_map,
+            seed=self.seed,
+        )
+
+        edgegrab_iter = edgegrab_sampler(qubits, length)
+        matching_iter = matching_sampler(qubits, length)
+
+        for layer in range(length):
+            if (layer % 2) == 0:
+                yield next(edgegrab_iter)
+            else:
+                yield next(matching_iter)
+'''     
+'''
+class NewSampler(MathSampler):
+    def __init__(
+        self,
+        gate_distribution=None,
+        coupling_map=None,
+        seed=None,
+    ):
+        super().__init__(
+            gate_distribution=gate_distribution,
+            coupling_map=coupling_map,
+            seed=seed,
+        )
+    
+    def __call__(
+        self,
+        qubits: Sequence,
+        length: int = 1,
+    ) -> Iterator[Tuple[GateInstruction]]:
+    """ Even layers with the edge grab algorithm, odd layers with the MatchSampler algorithm.
+    
+    Args:
+        qubits: A sequence of qubits to generate layers for.
+        length: The length of the sequence to output.
+    
+    num_qubits: int = len(qubits)
+    gateset: dict[Unknown, Unknown] = self._probs_by_gate_size(distribution=self._gate_distribution)
+    norm1q: Unknown = sum(gateset[1][1])
+    norm2q: Unknown = sum(gateset[2][1])
+    
+    two_qubit_gate_density: Unknown = norm2q / (norm1q + norm2q)
+    
+    for _ in range
+'''
+
+
+class NewSampler(MatchingSampler):
+    def __init__(
+        self,
+        gate_distribution=None,
+        coupling_map=None,
+        seed=None,
+    ):
+        super().__init__(
+            gate_distribution=gate_distribution,
+            coupling_map=coupling_map,
+            seed=seed,
+        )
+
+    def __call__(
+        self,
+        qubits: Sequence,
+        length: int = 1,
+    ) -> Iterator[Tuple[GateInstruction]]:
+        """
+        Alternate 100% matching on odd layers and 0% matching on even layers.
+        Odd layers: perform maximum matching (all possible pairs).
+        Even layers: no pairs (all single qubit gates only).
+        Always return Qiskit Instruction objects, never numpy arrays or Operators.
+        """
+        import networkx as nx
+        from qiskit.circuit.library import CXGate
+        num_qubits = len(qubits)
+        gateset = self._probs_by_gate_size(self._gate_distribution)
+        single_qubit_gates, single_qubit_probs = gateset.get(1, ([], []))
+        two_qubit_gates, two_qubit_probs = gateset.get(2, ([], []))
+
+        # Normalize probabilities if not already (avoid numpy error)
+        if single_qubit_probs and not np.isclose(sum(single_qubit_probs), 1):
+            total = sum(single_qubit_probs)
+            single_qubit_probs = [p / total for p in single_qubit_probs]
+        if two_qubit_probs and not np.isclose(sum(two_qubit_probs), 1):
+            total = sum(two_qubit_probs)
+            two_qubit_probs = [p / total for p in two_qubit_probs]
+
+        if self.coupling_map is None:
+            raise QiskitError("Coupling map must be set for NewSampler.")
+        edges = list(self.coupling_map.get_edges())
+
+        for layer in range(length):
+            layer_instructions = []
+            if (layer % 2) == 0 or not two_qubit_gates:
+                # Even layer: 0% matching (no pairs, only single qubit gates)
+                for q in qubits:
+                    if single_qubit_gates:
+                        gate = self._rng.choice(single_qubit_gates, p=single_qubit_probs)
+                        layer_instructions.append(GateInstruction((q,), gate))
+            else:
+                # Odd layer: 100% matching (maximum matching)
+                # Build a graph of available qubits and edges
+                G = nx.Graph()
+                G.add_nodes_from(qubits)
+                G.add_edges_from(edges)
+                # Use random weights to randomize the matching
+                for u, v in G.edges:
+                    G[u][v]['weight'] = self._rng.integers(1, 100000)
+                matching = nx.algorithms.matching.max_weight_matching(G, maxcardinality=True)
+                pairs = list(matching)
+                used = set()
+                for q0, q1 in pairs:
+                    used.add(q0)
+                    used.add(q1)
+                    if two_qubit_gates:
+                        gate = self._rng.choice(two_qubit_gates, p=two_qubit_probs)
+                        if isinstance(gate, np.ndarray):
+                            gate = CXGate()
+                        layer_instructions.append(GateInstruction((q0, q1), gate))
+                # Any unused qubits get single-qubit gates
+                for q in qubits:
+                    if q not in used and single_qubit_gates:
+                        gate = self._rng.choice(single_qubit_gates, p=single_qubit_probs)
+                        layer_instructions.append(GateInstruction((q,), gate))
+            # Debug print: print type and repr of every gate in the layer
+            for gi in layer_instructions:
+                print(f"[DEBUG] Layer {layer}: qargs={gi.qargs}, type={type(gi.op)}, repr={repr(gi.op)}")
+            yield tuple(layer_instructions)
