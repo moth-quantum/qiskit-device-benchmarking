@@ -391,6 +391,20 @@ class MirrorRB(StandardRB):
                         reordered_sequence.append(sequence[j])
                 sequences[s] = reordered_sequence
 
+        # Parity-aware swap: ensure outermost Clifford matches round parity
+        # (odd rounds → 2q layer at index 1, even rounds → 1q layer)
+        if not self.experiment_options.full_sampling and any(self._angles):
+            for s, sequence in enumerate(sequences):
+                if len(sequence) < 9:  # need at least 2 Clifford layers
+                    continue
+                has_2q = any(len(g.qargs) == 2 for g in sequence[1])
+                want_2q = (s % 2 == 1)
+                if has_2q != want_2q:
+                    n = len(sequence)
+                    # Swap outermost pair of Cliffords (indices 1↔3 and mirror n-2↔n-4)
+                    sequence[1], sequence[3] = sequence[3], sequence[1]
+                    sequence[n - 2], sequence[n - 4] = sequence[n - 4], sequence[n - 2]
+
         # Keep track of which qubits are paired and which not for the first Clifford layer of each circuit
         self._pairs = []
         self._singles = []
