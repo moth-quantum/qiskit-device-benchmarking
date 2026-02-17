@@ -518,7 +518,7 @@ class MatchingSampler(EdgeGrabSampler):
         )
 
 class NewSampler(MatchingSampler):
-    r"""A sampler that alternates between single-qubit-only layers and
+    """A sampler that alternates between single-qubit-only layers and
     fully-connected two-qubit layers via maximum weight matching.
 
     Given a list of qubits and their connectivity graph, this sampler produces
