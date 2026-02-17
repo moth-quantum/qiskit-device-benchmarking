@@ -10,29 +10,6 @@ After almost everything is paired up, the benchmarking algorithm's goal is to fi
 
 c.f. Definition of 'making pairs' is the process of selecting graph edges randomly.
 
-### Installation
-
-```
-git clone git@github.com:qiskit-community/qiskit-device-benchmarking.git
-cd qiskit-device-benchmarking
-pip install .
-```
-
-### Run Tests
-
-```
-pip install pytest
-pytest
-```
-
-### Lint
-
-```
-pip install ruff
-ruff check      # Lint files
-ruff format     # Format files
-```
-
 # License
 
 [Apache License 2.0](LICENSE.txt)
