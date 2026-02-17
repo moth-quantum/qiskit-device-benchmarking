@@ -405,6 +405,30 @@ class MirrorRB(StandardRB):
                     sequence[1], sequence[3] = sequence[3], sequence[1]
                     sequence[n - 2], sequence[n - 4] = sequence[n - 4], sequence[n - 2]
 
+        # Handle length-2 circuits on odd rounds: borrow a 2q Clifford layer
+        # from a sibling sequence in the same sample. This is consistent with
+        # the truncation design where all lengths already share layers from the
+        # same parent sequence.
+        if not self.experiment_options.full_sampling and any(self._angles):
+            num_lengths = len(self.experiment_options.lengths)
+            for s, sequence in enumerate(sequences):
+                if len(sequence) != 5 or s % 2 == 0:
+                    continue
+                sample_start = (s // num_lengths) * num_lengths
+                for sib_idx in range(sample_start, sample_start + num_lengths):
+                    sib = sequences[sib_idx]
+                    if len(sib) < 9:
+                        continue
+                    sn = len(sib)
+                    for fwd in (1, 3):
+                        if any(len(g.qargs) == 2 for g in sib[fwd]):
+                            sequence[1] = sib[fwd]
+                            sequence[3] = sib[sn - 1 - fwd]
+                            break
+                    else:
+                        continue
+                    break
+
         # Keep track of which qubits are paired and which not for the first Clifford layer of each circuit
         self._pairs = []
         self._singles = []
