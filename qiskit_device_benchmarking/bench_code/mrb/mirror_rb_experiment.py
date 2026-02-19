@@ -390,7 +390,11 @@ class MirrorRB(StandardRB):
                     else:  # paulis
                         reordered_sequence.append(sequence[j])
                 sequences[s] = reordered_sequence
-
+                
+        # **********************************
+        # ************ ADDED ***************
+        # **********************************
+        
         # Parity-aware swap: ensure outermost Clifford matches round parity
         # (odd rounds → 2q layer at index 1, even rounds → 1q layer)
         if not self.experiment_options.full_sampling and any(self._angles):
@@ -428,6 +432,9 @@ class MirrorRB(StandardRB):
                     else:
                         continue
                     break
+        # *********************************************
+        # *********************************************
+        # *********************************************
 
         # Keep track of which qubits are paired and which not for the first Clifford layer of each circuit
         self._pairs = []

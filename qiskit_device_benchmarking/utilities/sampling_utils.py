@@ -566,16 +566,8 @@ class NewSampler(MatchingSampler):
             QiskitError: If coupling map is not set.
         """
         gateset = self._probs_by_gate_size(self._gate_distribution)
-        single_qubit_gates, single_qubit_probs = gateset.get(1, ([], []))
-        two_qubit_gates, two_qubit_probs = gateset.get(2, ([], []))
-
-        # Normalize probabilities
-        if single_qubit_probs and not np.isclose(sum(single_qubit_probs), 1):
-            total = sum(single_qubit_probs)
-            single_qubit_probs = [p / total for p in single_qubit_probs]
-        if two_qubit_probs and not np.isclose(sum(two_qubit_probs), 1):
-            total = sum(two_qubit_probs)
-            two_qubit_probs = [p / total for p in two_qubit_probs]
+        norm1q = sum(gateset[1][1])
+        norm2q = sum(gateset[2][1])
 
         if self.coupling_map is None:
             raise QiskitError("Coupling map must be set for NewSampler.")
@@ -583,34 +575,51 @@ class NewSampler(MatchingSampler):
         for layer_idx in range(length):
             layer = []
 
-            if (layer_idx % 2) == 0 or not two_qubit_gates:
+            if (layer_idx % 2) == 0 or not gateset[2][0]:
                 # Even layer: all single-qubit gates, no pairs
                 for q in qubits:
-                    if single_qubit_gates:
-                        gate = self._rng.choice(
-                            single_qubit_gates, p=single_qubit_probs
+                    if norm1q > 0:
+                        layer.append(
+                            GateInstruction(
+                                (q,),
+                                self._rng.choice(
+                                    np.array(gateset[1][0], dtype=Instruction),
+                                    p=[x / norm1q for x in gateset[1][1]],
+                                ),
+                            )
                         )
-                        layer.append(GateInstruction((q,), gate))
             else:
-                # Odd layer: reuse parent's matching edge selection,
-                # then force ALL matched edges to get 2q gates
+                # Odd layer: full matching, ALL matched edges get 2q gates
                 selected_edges = self._select_edges()
 
                 used = set()
                 for edge in selected_edges:
                     used.add(edge[0])
                     used.add(edge[1])
-                    gate = self._rng.choice(two_qubit_gates, p=two_qubit_probs)
-                    if isinstance(gate, np.ndarray):
-                        gate = two_qubit_gates[0]
-                    layer.append(GateInstruction(tuple(edge), gate))
+                    if len(gateset[2][0]) == 1:
+                        layer.append(GateInstruction(tuple(edge), gateset[2][0][0]))
+                    else:
+                        layer.append(
+                            GateInstruction(
+                                tuple(edge),
+                                self._rng.choice(
+                                    np.array(gateset[2][0], dtype=Instruction),
+                                    p=[x / norm2q for x in gateset[2][1]],
+                                ),
+                            )
+                        )
 
                 # Unmatched qubits get single-qubit gates
                 for q in qubits:
-                    if q not in used and single_qubit_gates:
-                        gate = self._rng.choice(
-                            single_qubit_gates, p=single_qubit_probs
+                    if q not in used and norm1q > 0:
+                        layer.append(
+                            GateInstruction(
+                                (q,),
+                                self._rng.choice(
+                                    np.array(gateset[1][0], dtype=Instruction),
+                                    p=[x / norm1q for x in gateset[1][1]],
+                                ),
+                            )
                         )
-                        layer.append(GateInstruction((q,), gate))
 
             yield tuple(layer)
