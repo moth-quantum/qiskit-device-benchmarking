@@ -517,109 +517,74 @@ class MatchingSampler(EdgeGrabSampler):
             matching=True,
         )
 
+# New experiment: Creates a repetitive pattern of 2q-1q gates (starting from 2q for MQA layer)
 class NewSampler(MatchingSampler):
-    """A sampler that alternates between single-qubit-only layers and
-    fully-connected two-qubit layers via maximum weight matching.
+    """Composes two MatchingSamplers internally:
+    - Even rounds (0, 2, 4, ...): density 0.0 -> single-qubit gates only
+    - Odd rounds  (1, 3, 5, ...): density 0.5 -> matching + two-qubit gates
 
-    Given a list of qubits and their connectivity graph, this sampler produces
-    layers with the following alternating pattern:
-
-    - **Even layers** (0, 2, 4, ...): All qubits receive random single-qubit
-      Cliffords. No two-qubit gates are placed.
-
-    - **Odd layers** (1, 3, 5, ...): A maximum weight matching is computed
-      on the connectivity graph (reusing :meth:`EdgeGrabSampler._select_edges`
-      with ``matching=True``). Every matched edge receives a two-qubit gate
-      (guaranteed, not probabilistic). Unmatched qubits receive random
-      single-qubit Cliffords.
+    No inheritance. The experiment framework calls .seed, .coupling_map,
+    .gate_distribution, and __call__ on the sampler — so we must provide
+    those as properties that forward to both internal MatchingSamplers.
     """
+    def __init__(self, seed=None, **kwargs):
+        # Create two independent MatchingSamplers.
+        # _even handles rounds 0, 2, 4, ... (1q only)
+        # _odd handles rounds 1, 3, 5, ... (MatchingSampler with 0.5 -> 1.0 density actually)
+        self._even = MatchingSampler(seed=seed, **kwargs)
+        self._odd = MatchingSampler(seed=seed, **kwargs)
 
-    def __init__(
-        self,
-        gate_distribution=None,
-        coupling_map=None,
-        seed=None,
-    ):
-        super().__init__(
-            gate_distribution=gate_distribution,
-            coupling_map=coupling_map,
-            seed=seed,
-        )
+    # ***** Sending stuffs to MatchingSampler so that it won't break
+    # dealing with seed
+    @property
+    def seed(self):
+        return self._odd.seed
 
-    def __call__(
-        self,
-        qubits: Sequence,
-        length: int = 1,
-    ) -> Iterator[Tuple[GateInstruction]]:
-        """Sample layers alternating between 1q-only and full matching.
+    @seed.setter
+    def seed(self, val):
+        self._odd.seed = val
+        self._even.seed = val
 
-        Args:
-            qubits: A sequence of qubits to generate layers for.
-            length: The number of layers to generate.
+    # brings coupling map
+    @property
+    def coupling_map(self):
+        return self._odd.coupling_map
 
-        Yields:
-            Layers of ``GateInstruction`` tuples. Even layers contain only
-            single-qubit gates. Odd layers contain two-qubit gates on all
-            matched edges.
+    @coupling_map.setter
+    def coupling_map(self, val):
+        self._odd.coupling_map = val
+        self._even.coupling_map = val
 
-        Raises:
-            QiskitError: If coupling map is not set.
-        """
-        gateset = self._probs_by_gate_size(self._gate_distribution)
-        norm1q = sum(gateset[1][1])
-        norm2q = sum(gateset[2][1])
+    # works with gate distribution so that it will follow the chessboard pattern
+    # whatever value that we sent from MirrorQA object, two_qubit_gate_density will be ignored
+    @property
+    def gate_distribution(self):
+        return self._odd.gate_distribution
 
-        if self.coupling_map is None:
-            raise QiskitError("Coupling map must be set for NewSampler.")
+    @gate_distribution.setter
+    def gate_distribution(self, dist):
+        # Step 1: Find the two-qubit gate grom the distribution.
+        # dist is a list of (prob, Instruction) tuples.
+        two_q_gate = None
+        for d in dist:
+            gd = GateDistribution(*d) if not isinstance(d, GateDistribution) else d
+            if gd.op.num_qubits == 2:
+                two_q_gate = gd.op
+                break
+        # Step 2: Deliver needed parameters to each sampler object
+        self._odd.gate_distribution = [
+            GateDistribution(1.0, two_q_gate),
+            GateDistribution(0.0, GenericClifford(1)),
+        ]
+        self._even.gate_distribution = [
+            GateDistribution(0.0, two_q_gate),
+            GateDistribution(1.0, GenericClifford(1)),
+        ]
 
-        for layer_idx in range(length):
-            layer = []
-
-            if (layer_idx % 2) == 0 or not gateset[2][0]:
-                # Even layer: all single-qubit gates, no pairs
-                for q in qubits:
-                    if norm1q > 0:
-                        layer.append(
-                            GateInstruction(
-                                (q,),
-                                self._rng.choice(
-                                    np.array(gateset[1][0], dtype=Instruction),
-                                    p=[x / norm1q for x in gateset[1][1]],
-                                ),
-                            )
-                        )
+    # ***** mirror_rb_experiment.py will call this fellow to build pairs
+    def __call__(self, qubits, length=1):
+        for i in range(length):
+            if i % 2 == 0:
+                yield from self._even(qubits, 1)
             else:
-                # Odd layer: full matching, ALL matched edges get 2q gates
-                selected_edges = self._select_edges()
-
-                used = set()
-                for edge in selected_edges:
-                    used.add(edge[0])
-                    used.add(edge[1])
-                    if len(gateset[2][0]) == 1:
-                        layer.append(GateInstruction(tuple(edge), gateset[2][0][0]))
-                    else:
-                        layer.append(
-                            GateInstruction(
-                                tuple(edge),
-                                self._rng.choice(
-                                    np.array(gateset[2][0], dtype=Instruction),
-                                    p=[x / norm2q for x in gateset[2][1]],
-                                ),
-                            )
-                        )
-
-                # Unmatched qubits get single-qubit gates
-                for q in qubits:
-                    if q not in used and norm1q > 0:
-                        layer.append(
-                            GateInstruction(
-                                (q,),
-                                self._rng.choice(
-                                    np.array(gateset[1][0], dtype=Instruction),
-                                    p=[x / norm1q for x in gateset[1][1]],
-                                ),
-                            )
-                        )
-
-            yield tuple(layer)
+                yield from self._odd(qubits, 1)

@@ -59,9 +59,9 @@ from qiskit_device_benchmarking.utilities.clifford_utils import compute_target_b
 from qiskit_device_benchmarking.utilities.sampling_utils import (
     EdgeGrabSampler,
     MatchingSampler,
-    SingleQubitSampler,
-    OddEvenSampler,
     NewSampler,
+    OddEvenSampler,
+    SingleQubitSampler,
     GateInstruction,
     GateDistribution,
     GenericClifford,
@@ -109,7 +109,13 @@ class MirrorRB(StandardRB):
 
     """
 
-    sampler_map = {"edge_grab": EdgeGrabSampler, "matching": MatchingSampler, "single_qubit": SingleQubitSampler, "new": NewSampler, "chess": OddEvenSampler} 
+    sampler_map = {
+        "edge_grab": EdgeGrabSampler,
+        "matching": MatchingSampler,
+        "single_qubit": SingleQubitSampler,
+        "new": NewSampler,
+        "chess": OddEvenSampler,
+    }
 
     # pylint: disable=dangerous-default-value
     def __init__(
@@ -247,9 +253,7 @@ class MirrorRB(StandardRB):
         for the default "edge_grab" sampler."""
 
         if self.experiment_options.sampling_algorithm not in ["edge_grab", "matching", "new", "chess"]:
-            raise QiskitError(
-                "Unsupported sampling algorithm provided."
-            )
+            raise QiskitError("Unsupported sampling algorithm provided.")
 
         self._distribution.seed = self.experiment_options.seed
 
@@ -379,15 +383,60 @@ class MirrorRB(StandardRB):
         # Reverse order of Clifford layers if entangling pairs used
         if not self.experiment_options.full_sampling and any(self._angles):
             for s, sequence in enumerate(sequences):
-                hsl = (len(sequence)-1)//2
+                hsl = (len(sequence) - 1) // 2
                 reordered_sequence = []
                 for j in range(len(sequence)):
-                    h = (j > hsl)
-                    if j%2: # cliffords
-                        reordered_sequence.append(sequence[hsl-j-h])
-                    else: # paulis
+                    h = j > hsl
+                    if j % 2:  # cliffords
+                        reordered_sequence.append(sequence[hsl - j - h])
+                    else:  # paulis
                         reordered_sequence.append(sequence[j])
                 sequences[s] = reordered_sequence
+                
+        # **********************************
+        # ************ ADDED ***************
+        # **********************************
+        
+        # Partial swap: ensure outermost Clifford matches its pair
+        # (odd rounds -> 2q layer at index 1, even rounds -> 1q layer)
+        if not self.experiment_options.full_sampling and any(self._angles):
+            for s, sequence in enumerate(sequences):
+                if len(sequence) < 9:  # need at least 2 Clifford layers for proper swapping
+                    continue
+                has_2q = any(len(g.qargs) == 2 for g in sequence[1]) # current state
+                want_2q = (s % 2 == 1) # We need an even round - 2q for intention...
+                if has_2q != want_2q:
+                    n = len(sequence)
+                    # Swap outermost pair of Cliffords (indices 1 <-> 3 and mirror n-2 <-> n-4)
+                    sequence[1], sequence[3] = sequence[3], sequence[1]
+                    sequence[n - 2], sequence[n - 4] = sequence[n - 4], sequence[n - 2]
+
+        # Handle length-2 circuits on odd rounds: borrow a 2q Clifford layer
+        # from a sibling sequence in the same sample. This is consistent with
+        # the truncation design where all lengths already share layers from the
+        # same parent sequence.
+        if not self.experiment_options.full_sampling and any(self._angles):
+            num_lengths = len(self.experiment_options.lengths)
+            for s, sequence in enumerate(sequences):
+                if len(sequence) != 5 or s % 2 == 0:
+                    continue
+                sample_start = (s // num_lengths) * num_lengths
+                for sib_idx in range(sample_start, sample_start + num_lengths):
+                    sib = sequences[sib_idx]
+                    if len(sib) < 9:
+                        continue
+                    sn = len(sib)
+                    for fwd in (1, 3):
+                        if any(len(g.qargs) == 2 for g in sib[fwd]):
+                            sequence[1] = sib[fwd]
+                            sequence[3] = sib[sn - 1 - fwd]
+                            break
+                    else:
+                        continue
+                    break
+        # *********************************************
+        # *********************************************
+        # *********************************************
 
         # Keep track of which qubits are paired and which not for the first Clifford layer of each circuit
         self._pairs = []
@@ -415,7 +464,7 @@ class MirrorRB(StandardRB):
             A list of RB circuits.
         """
         basis_gates = tuple(self.backend.operation_names)
-        
+
         # transpile 2q gates
         qc2q = QuantumCircuit(2)
         qc2q.append(self._two_qubit_gate, [0, 1])
@@ -424,7 +473,7 @@ class MirrorRB(StandardRB):
         qrx = []
         for theta in self._angles:
             qc = QuantumCircuit(1)
-            if theta == pi/2:
+            if theta == pi / 2:
                 qc.h(0)
                 qc.s(0)
                 qc.h(0)
@@ -442,7 +491,7 @@ class MirrorRB(StandardRB):
                 for elem in layer:
                     instr = self._to_instruction(elem.op)
                     qargs = elem.qargs
-                    if l == (len(seq) - 2) and instr.name == 'cx':
+                    if l == (len(seq) - 2) and instr.name == "cx":
                         if self._angles[1]:
                             circ.compose(qrx[1], [qargs[0]], inplace=True)
                     if len(qargs) == 2:
@@ -450,7 +499,7 @@ class MirrorRB(StandardRB):
                         circ.compose(qc2q, qargs, inplace=True)
                     else:
                         circ.append(self._to_instruction(elem.op, basis_gates), qargs)
-                    if l == 1 and instr.name == 'cx':
+                    if l == 1 and instr.name == "cx":
                         if self._angles[0]:
                             circ.compose(qrx[0], [qargs[0]], inplace=True)
                     circ_target.append(instr, elem.qargs)
@@ -516,10 +565,10 @@ class MirrorRB(StandardRB):
             QiskitError: If the layer has invalid format.
         """
         inverse_layer = []
-        for elem in layer: # first single qubit
+        for elem in layer:  # first single qubit
             if len(elem.qargs) == 1 and np.issubdtype(type(elem.op), int):
                 inverse_layer.append(GateInstruction(elem.qargs, inverse_1q(elem.op)))
-        for elem in layer: # then two qubit qubit
+        for elem in layer:  # then two qubit qubit
             if len(elem.qargs) == 2 and elem.op in _self_adjoint_gates:
                 inverse_layer.append(elem)
             elif not (len(elem.qargs) == 1 and np.issubdtype(type(elem.op), int)):
