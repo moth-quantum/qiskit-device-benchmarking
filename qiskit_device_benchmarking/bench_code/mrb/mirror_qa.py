@@ -86,6 +86,7 @@ class MirrorQA(MirrorRB):
         initial_entangling_angle: float = pi/2,
         final_entangling_angle: float = 0,
         analyzed_quantity: str = "Effective Polarization",
+        start_end_clifford: bool = False,
     ):
         """Initialize a mirror quantum awesomeness experiment.
 
@@ -134,7 +135,7 @@ class MirrorQA(MirrorRB):
             seed=seed,
             inverting_pauli_layer=inverting_pauli_layer,
             full_sampling=False,
-            start_end_clifford=False,
+            start_end_clifford=start_end_clifford,
             initial_entangling_angle = initial_entangling_angle,
             final_entangling_angle = final_entangling_angle,
         )
