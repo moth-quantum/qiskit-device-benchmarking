@@ -267,8 +267,12 @@ class _ComputeQuantities(DataAction):
         self._analyzed_quantity = analyzed_quantity
         self._target_bs = target_bs
 
-    def _rewrite_string(string, index):
-        '''Returns string unchanged. Will be overwritten for Mirror QA'''
+    def _rewrite_string(self, string, index):
+        '''Returns string unchanged. Will be overwritten for Mirror QA
+
+        Signature must include ``self`` so that subclasses can override properly
+        without triggering a ``TypeError`` as seen during data processing.
+        '''
         return string
 
     def _process(self, data: np.ndarray):

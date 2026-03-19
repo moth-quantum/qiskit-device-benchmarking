@@ -117,7 +117,7 @@ class MirrorRB(StandardRB):
         start_end_clifford: bool = True,
         pauli_randomize: bool = True,
         sampling_algorithm: str = "edge_grab",
-        two_qubit_gate_density: float = 0.2,
+        two_qubit_gate_density: float = 0.25,
         two_qubit_gate: Instruction = CXGate(),
         num_samples: int = 3,
         sampler_opts: Optional[dict] = {},
