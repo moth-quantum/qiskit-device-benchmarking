@@ -517,74 +517,66 @@ class MatchingSampler(EdgeGrabSampler):
             matching=True,
         )
 
-# New experiment: Creates a repetitive pattern of 2q-1q gates (starting from 2q for MQA layer)
 class NewSampler(MatchingSampler):
-    """Composes two MatchingSamplers internally:
-    - Even rounds (0, 2, 4, ...): density 0.0 -> single-qubit gates only
-    - Odd rounds  (1, 3, 5, ...): density 0.5 -> matching + two-qubit gates
+    """Produces a strict 2Q-1Q-2Q-1Q-... alternating pattern.
 
-    No inheritance. The experiment framework calls .seed, .coupling_map,
-    .gate_distribution, and __call__ on the sampler — so we must provide
-    those as properties that forward to both internal MatchingSamplers.
+    Even rounds (0, 2, ...): pure 2Q layer — CX on every max-matched edge, no 1Q dressing.
+    Odd rounds (1, 3, ...): pure 1Q layer — SingleQubitSampler Cliffords on all qubits.
+    Layer 0 is always 2Q, so after symmetric truncation the outermost Clifford is always 2Q.
     """
-    def __init__(self, seed=None, **kwargs):
-        # Create two independent MatchingSamplers.
-        # _even handles rounds 0, 2, 4, ... (1q only)
-        # _odd handles rounds 1, 3, 5, ... (MatchingSampler with 0.5 -> 1.0 density actually)
-        self._even = MatchingSampler(seed=seed, **kwargs)
-        self._odd = MatchingSampler(seed=seed, **kwargs)
 
-    # ***** Sending stuffs to MatchingSampler so that it won't break
-    # dealing with seed
+    def __init__(self, seed=None, **kwargs):
+        self._2q = MatchingSampler(seed=seed, **kwargs)  # used only for _select_edges()
+        self._1q = SingleQubitSampler(seed=seed)
+        self._two_q_gate = None
+
     @property
     def seed(self):
-        return self._odd.seed
+        return self._2q.seed
 
     @seed.setter
     def seed(self, val):
-        self._odd.seed = val
-        self._even.seed = val
+        self._2q.seed = val
+        self._1q.seed = val
 
-    # brings coupling map
     @property
     def coupling_map(self):
-        return self._odd.coupling_map
+        return self._2q.coupling_map
 
     @coupling_map.setter
     def coupling_map(self, val):
-        self._odd.coupling_map = val
-        self._even.coupling_map = val
+        self._2q.coupling_map = val
+        # SingleQubitSampler needs no coupling map
 
-    # works with gate distribution so that it will follow the chessboard pattern
-    # whatever value that we sent from MirrorQA object, two_qubit_gate_density will be ignored
     @property
     def gate_distribution(self):
-        return self._odd.gate_distribution
+        return self._2q.gate_distribution
 
     @gate_distribution.setter
     def gate_distribution(self, dist):
-        # Step 1: Find the two-qubit gate grom the distribution.
-        # dist is a list of (prob, Instruction) tuples.
         two_q_gate = None
+        one_q_gate = GenericClifford(1)
         for d in dist:
             gd = GateDistribution(*d) if not isinstance(d, GateDistribution) else d
             if gd.op.num_qubits == 2:
                 two_q_gate = gd.op
-                break
-        # Step 2: Deliver needed parameters to each sampler object
-        self._odd.gate_distribution = [
-            GateDistribution(1.0, two_q_gate),
-            GateDistribution(0.0, GenericClifford(1)),
-        ]
-        self._even.gate_distribution = [
-            GateDistribution(0.0, two_q_gate),
-            GateDistribution(1.0, GenericClifford(1)),
-        ]
+            elif gd.op.num_qubits == 1:
+                one_q_gate = gd.op
+        self._two_q_gate = two_q_gate
+        # Pass the original dist to _2q so its EdgeGrabSampler setter validation
+        # passes (requires both 1Q and 2Q gates). We only call _2q._select_edges().
+        self._2q.gate_distribution = dist
+        self._1q.gate_distribution = [GateDistribution(1.0, one_q_gate)]
 
-    # ***** mirror_rb_experiment.py will call this fellow to build pairs
     def __call__(self, qubits, length=1):
         for i in range(length):
             if i % 2 == 0:
-                yield from self._even(qubits, 1)
+                # Pure 2Q layer: CX on ALL matched edges, no 1Q dressing
+                edges = self._2q._select_edges()
+                yield tuple(GateInstruction(tuple(e), self._two_q_gate) for e in edges)
             else:
-                yield from self._odd(qubits, 1)
+                # Pure 1Q layer: independent Clifford on every qubit
+                yield from self._1q(qubits, 1)
+class OddEvenSampler(): # Don't use this anymore
+    def __init__(self, seed=None, **kwargs):
+        self.name = 'Hello'

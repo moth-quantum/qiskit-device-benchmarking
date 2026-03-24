@@ -170,7 +170,7 @@ class MirrorRBAnalysis(RBAnalysis):
         if self.options.analyzed_quantity == "Success Probability":
             b_guess = 1 / 2**num_qubits
 
-        mirror_curve = curve_data.get_subset_of("rb_decay")
+        mirror_curve = curve_data.filter(series="rb_decay")
         alpha_mirror = curve.guess.rb_decay(mirror_curve.x, mirror_curve.y, b=b_guess)
         a_guess = (curve_data.y[0] - b_guess) / (alpha_mirror ** curve_data.x[0])
 

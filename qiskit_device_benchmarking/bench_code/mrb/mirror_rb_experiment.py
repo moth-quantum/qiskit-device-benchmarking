@@ -373,21 +373,53 @@ class MirrorRB(StandardRB):
             # Construct the rest of the sequences from the longest if `full_sampling` is
             # off
             if not self.experiment_options.full_sampling:
-                for real_length in build_seq_lengths:
-                    sequences.append(seq[: real_length // 2] + seq[-real_length // 2 :])
+                if isinstance(self._distribution, NewSampler) and any(self._angles):
+                    # --- NewSampler + MQA path ---
+                    # The original reordering (j%2) breaks on truncated
+                    # Pauli-interleaved sequences. Instead: work on pure
+                    # Cliffords, then wrap Paulis after.
+                    cliff_seq = [seq[i] for i in range(len(seq)) if i % 2 == 1]
+                    n_total = len(cliff_seq)
 
-        # Reverse order of Clifford layers if entangling pairs used
-        if not self.experiment_options.full_sampling and any(self._angles):
-            for s, sequence in enumerate(sequences):
-                hsl = (len(sequence)-1)//2
-                reordered_sequence = []
-                for j in range(len(sequence)):
-                    h = (j > hsl)
-                    if j%2: # cliffords
-                        reordered_sequence.append(sequence[hsl-j-h])
-                    else: # paulis
-                        reordered_sequence.append(sequence[j])
-                sequences[s] = reordered_sequence
+                    for length in self.experiment_options.lengths:
+                        n = length // 2
+                        fwd = cliff_seq[:n]
+                        inv = cliff_seq[n_total - n:]
+                        # cliff_seq[0] is always a 2Q layer (NewSampler even=2Q),
+                        # so the outermost Clifford is guaranteed 2Q after truncation.
+                        truncated = fwd + inv
+
+                        # Wrap with fresh, independently sampled Pauli layers
+                        p_layers = list(
+                            pauli_sampler(
+                                range(self.num_qubits), length=length + 1
+                            )
+                        )
+                        wrapped = list(
+                            itertools.chain(*zip(p_layers[:-1], truncated))
+                        )
+                        wrapped.append(p_layers[-1])
+                        sequences.append(wrapped)
+                else:
+                    # --- Original path (edge_grab, matching, etc.) ---
+                    for real_length in build_seq_lengths:
+                        sequences.append(
+                            seq[: real_length // 2]
+                            + seq[-real_length // 2 :]
+                        )
+
+                    # Original reordering for non-NewSampler
+                    if any(self._angles):
+                        for s, sequence in enumerate(sequences):
+                            hsl = (len(sequence)-1)//2
+                            reordered_sequence = []
+                            for j in range(len(sequence)):
+                                h = (j > hsl)
+                                if j%2: # cliffords
+                                    reordered_sequence.append(sequence[hsl-j-h])
+                                else: # paulis
+                                    reordered_sequence.append(sequence[j])
+                            sequences[s] = reordered_sequence
 
         # Keep track of which qubits are paired and which not for the first Clifford layer of each circuit
         self._pairs = []
