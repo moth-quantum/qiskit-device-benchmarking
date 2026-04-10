@@ -134,7 +134,7 @@ class MirrorQA(MirrorRB):
             sampler_opts=sampler_opts,
             seed=seed,
             inverting_pauli_layer=inverting_pauli_layer,
-            full_sampling=False,
+            full_sampling=False, # False makes life difficult
             start_end_clifford=False,
             initial_entangling_angle=initial_entangling_angle,
             final_entangling_angle=final_entangling_angle,

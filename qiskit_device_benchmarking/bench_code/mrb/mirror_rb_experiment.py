@@ -373,8 +373,8 @@ class MirrorRB(StandardRB):
             # Construct the rest of the sequences from the longest if `full_sampling` is
             # off
             if not self.experiment_options.full_sampling:
-                if isinstance(self._distribution, NewSampler) and any(self._angles):
-                    # --- NewSampler + MQA path ---
+                if isinstance(self._distribution, NewSampler) and any(self._angles): # NewSampler
+                    # ====== NewSampler ONLY ======
                     # The original reordering (j%2) breaks on truncated
                     # Pauli-interleaved sequences. Instead: work on pure
                     # Cliffords, then wrap Paulis after.
@@ -385,10 +385,16 @@ class MirrorRB(StandardRB):
                         n = length // 2
                         fwd = cliff_seq[:n]
                         inv = cliff_seq[n_total - n:]
-                        # cliff_seq[0] is always a 2Q layer (NewSampler even=2Q),
-                        # so the outermost Clifford is guaranteed 2Q after truncation.
+                        
+                        # Reordering logic based on NewSampler's 2q-1q pattern.
+                        for half in (fwd, inv):
+                            twoq = half[0::2][::-1]
+                            oneq = half[1::2][::-1]
+                            half[0::2] = twoq
+                            half[1::2] = oneq
+                    
                         truncated = fwd + inv
-
+                        
                         # Wrap with fresh, independently sampled Pauli layers
                         p_layers = list(
                             pauli_sampler(
@@ -401,14 +407,14 @@ class MirrorRB(StandardRB):
                         wrapped.append(p_layers[-1])
                         sequences.append(wrapped)
                 else:
-                    # --- Original path (edge_grab, matching, etc.) ---
+                    # === Original path (edge_grab, matching, etc.) ===
                     for real_length in build_seq_lengths:
                         sequences.append(
                             seq[: real_length // 2]
                             + seq[-real_length // 2 :]
                         )
 
-                    # Original reordering for non-NewSampler
+                    # Original reordering for other sampling methods
                     if any(self._angles):
                         for s, sequence in enumerate(sequences):
                             hsl = (len(sequence)-1)//2
