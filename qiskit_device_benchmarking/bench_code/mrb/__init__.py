@@ -29,6 +29,7 @@ from .mirror_qv_analysis import MirrorQuantumVolumeAnalysis
 from .mirror_rb_experiment import MirrorRB
 from .mirror_rb_analysis import MirrorRBAnalysis
 from .mirror_qa import MirrorQA, QuantumAwesomeness
+from .mirror_qa_topo import TopoUtil
 
 __all__ = [
     MirrorQuantumVolume,
@@ -37,4 +38,5 @@ __all__ = [
     MirrorRBAnalysis,
     MirrorQA,
     QuantumAwesomeness,
+    TopoUtil,
 ]
