@@ -79,7 +79,7 @@ class MirrorQA(MirrorRB):
         sampling_algorithm: str = "edge_grab",
         two_qubit_gate_density: float = 0.25,
         two_qubit_gate: Instruction = CXGate(),
-        num_samples: int = 3,
+        num_samples: int = 3, # for Topo: 100
         sampler_opts: Optional[dict] = {},
         backend: Optional[Backend] = None,
         seed: Optional[Union[int, SeedSequence, BitGenerator, Generator]] = None,

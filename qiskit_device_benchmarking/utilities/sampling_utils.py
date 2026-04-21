@@ -580,37 +580,125 @@ class NewSampler(MatchingSampler):
 class TopoSampler(NewSampler):
     """Like NewSampler, this also produces 2q-1q-2q-1q-... pattern.
     
-    This sampler's goal is making the increasing depth of collectible circuits that contains
-    multiple layers, but if they are odd indices, they have 1q operations only. For the even
-    indices, they have 2q gates only, and, like NewSampler, its connectivity must be fully
-    used, which means that all possible pairs must be selected. e.g. 4x4 -> 8 pairs in the
-    outermost layer. (For MQA)
+    This sampler's goal is making the increasing depth of collectible circuits
+    that contains multiple layers, but if they are odd indices, they have
+    1q operations only. For the even indices, they have 2q gates only, and,
+    like NewSampler, its connectivity must be fully used, which means that all
+    possible pairs must be selected. e.g. 4x4 -> 8 pairs in the outermost.
     
-    However, TopoSampler is the advanced version of NewSampler. Now, it will contain false
-    qubits and their connections toward the edge of left and right side of the device map.
-    This one will intentionally exclude None (full matching) or one qubit on the edge, making
-    the fake connection.
+    However, TopoSampler is the advanced version of NewSampler.
+    Now, it will contain false qubits and their connections toward the edge of
+    left and right side of the device map. This one will intentionally exclude
+    None (full matching) or one qubit on the edge, making the fake connection.
     
-    c.f. That connection will be ignored throughout the ._pairs metadata construction. 
+    c.f. That connection will be ignored throughout the ._pairs.
+    
+    **Modes**
+        - 'g2g' (genuine to genuine connection): MWPM on 'true' qubit only.
+        Eventually the same as NewSampler. All n / 2 pairs will store in ._pairs.
+        - 'f2f' (fa'q'e to faqe connection): Original square lattice + two fake qubits
+        It will include the fake qubits' connection along with 'g2g', but it won't
+        be included in ._pairs.
+        - 'f2g' (faqe to genuine): MWPM will automatically connect all pairs possible
+        based on the coupling map including fake qubits connected to L/R boundary.
+        Abandoned(?) genuine qubits will be either left on left or right boundary.
     """
-    def __init__(self, legit, lonely, seed=None, **kwargs):                                                                                                     
-          super().__init__(seed=seed, **kwargs)                                                                                                                  
-          self.legit = legit  # e.g. 16 for 4×4; fake qubits' indices are >= than this
-          self.lonely = lonely # Isolated qubit
-          # None or int (qubit index)
-          # MUST be located on the left/rightermost edge of the coupling map.
     
-    def _select_edges_top(self):
+    def __init__(self, legit, mode='g2g', seed=None, **kwargs):
+        super().__init__(seed=seed, **kwargs)
+        if mode not in ('g2g', 'f2f', 'f2g'):
+            raise ValueError(f'Check the documentation to set the correct mode.')
+        self.legit = legit
+        self.mode = mode
+        self._nl = None
+        self._nr = None
+        self._left_nodes = None
+        self._right_nodes = None
+
+    @staticmethod
+    def _graph2cmap(g, rng):
+        """ Change the coupling maps to the graph for sampling.
+        Not only change it but also add fake qubits (faqe) to the graph
+        so that behind-the-scene tricks can happen.
+        """
+        corners = [n for n in g.nodes if g.degree(n) == 2]
+        if len(corners) != 4:
+            raise ValueError(f'Coupling map is not a square lattice with even number of qubits.')
+        
+        corners_dist = {}
+        for j in range(len(corners)):
+            for k in range(j + 1, len(corners)):
+                corners_dist[corners[j], corners[k]] = nx.dijkstra_path_length(
+                    g, corners[j], corners[k]
+                )
+        corner_dist = {
+            ns: d
+            for ns, d in corners_dist.items()
+            if max(corners_dist, key=corners_dist.get)[0] in ns
+            }
+        min_d = min(corner_dist.values())
+        candidates = [pair for pair, d in corner_dist.items() if d == min_d]
+        
+        # determine the left boundary qubits
+        left_corners = candidates[0]
+        for pair in candidates:
+            path = nx.dijkstra_path(g, pair[0], pair[1])
+            diffs = [abs(path[i + 1] - path[i]) for i in range(len(path) - 1)]
+            if max(diffs) > 1: # vertical edge -> column path
+                left_corners = pair
+                break
+        
+        right_corners = tuple(n for n in corners if n not in left_corners)
+        
+        left_nodes = nx.dijkstra_path(g, left_corners[0], left_corners[1])
+        right_nodes = nx.dijkstra_path(g, right_corners[0], right_corners[1])
+        
+        nl = max(g.nodes) + 1 # faqe on the left side
+        nr = nl + 1 # faqe on the right side
+        
+        for n in left_nodes:
+            g.add_edge(nl, n, weight=int(rng.integers(0, 101)))
+        for n in right_nodes:
+            g.add_edge(nr, n, weight=int(rng.integers(0, 101)))
+        
+        return nl, nr, left_nodes, right_nodes
+    
+    def _select_edges_topo(self):
         all_edges = self._2q.coupling_map.get_edges()
         all_edges_set = set(map(tuple, all_edges))
-          
+        legit_edges = [(u, v) for u, v in all_edges
+                       if u < self.legit and v < self.legit]
+        
+        G = nx.Graph()
+        seen = set()
+        
+        for u, v in legit_edges:
+            key = (min(u, v), max(u, v))
+            if key not in seen:
+                seen.add(key)
+                G.add_edge(u, v)
+        
+        if self.mode == 'f2g': 
+            self._nl, self._nr, self._left_nodes, self._right_nodes = self._graph2cmap(G, self._2q._rng)
+        elif self.mode == 'f2f':
+            G_tmp = G.copy()
+            _, _, self._left_nodes, self._right_nodes = self._graph2cmap(G_tmp, self._2q._rng)
+        
+        for u, v, d in G.edges(data=True):
+            if u < self.legit and v < self.legit:
+                d['weight'] = int(self._2q._rng.integers(0, 101))
+        matching = nx.max_weight_matching(G, maxcardinality=True)
+        
+        return [(u, v) if (u, v) in all_edges_set else (v, u)
+                for u, v in matching
+                if u< self.legit and v < self.legit]
+    
     def __call__(self, qubits, length=1):
         legits = [q for q in qubits if q < self.legit]
         for i in range(length):
             if i % 2 == 0:
-                edges = self._select_edges_top()
+                edges = self._select_edges_topo()
                 yield tuple(GateInstruction(tuple(e), self._two_q_gate) for e in edges)
             else:
                 yield from self._1q(legits, 1)
-    
-    
+        
