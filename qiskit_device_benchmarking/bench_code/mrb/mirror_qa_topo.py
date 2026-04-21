@@ -77,7 +77,11 @@ class TopoUtil():
     def checkCouple(cmap):
         """
         Input:
-            - cmap: (qiskit.transpiler.CouplingMap)  
+            - cmap: (qiskit.transpiler.CouplingMap)
+            
+        Process:
+            Just prints the coupling map via PIL.
+             
         Output:
             prints stuff
         """

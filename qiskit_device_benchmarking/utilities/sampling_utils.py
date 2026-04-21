@@ -481,7 +481,6 @@ class EdgeGrabSampler(BaseSampler):
                     )
             yield tuple(layer)
 
-
 class MatchingSampler(EdgeGrabSampler):
     r"""A sampler that uses maximum weight matching for sampling gate layers.
 
@@ -577,6 +576,41 @@ class NewSampler(MatchingSampler):
             else:
                 # Pure 1Q layer: independent Clifford on every qubit
                 yield from self._1q(qubits, 1)
-class OddEvenSampler(): # Don't use this anymore
-    def __init__(self, seed=None, **kwargs):
-        self.name = 'Hello'
+
+class TopoSampler(NewSampler):
+    """Like NewSampler, this also produces 2q-1q-2q-1q-... pattern.
+    
+    This sampler's goal is making the increasing depth of collectible circuits that contains
+    multiple layers, but if they are odd indices, they have 1q operations only. For the even
+    indices, they have 2q gates only, and, like NewSampler, its connectivity must be fully
+    used, which means that all possible pairs must be selected. e.g. 4x4 -> 8 pairs in the
+    outermost layer. (For MQA)
+    
+    However, TopoSampler is the advanced version of NewSampler. Now, it will contain false
+    qubits and their connections toward the edge of left and right side of the device map.
+    This one will intentionally exclude None (full matching) or one qubit on the edge, making
+    the fake connection.
+    
+    c.f. That connection will be ignored throughout the ._pairs metadata construction. 
+    """
+    def __init__(self, legit, lonely, seed=None, **kwargs):                                                                                                     
+          super().__init__(seed=seed, **kwargs)                                                                                                                  
+          self.legit = legit  # e.g. 16 for 4×4; fake qubits' indices are >= than this
+          self.lonely = lonely # Isolated qubit
+          # None or int (qubit index)
+          # MUST be located on the left/rightermost edge of the coupling map.
+    
+    def _select_edges_top(self):
+        all_edges = self._2q.coupling_map.get_edges()
+        all_edges_set = set(map(tuple, all_edges))
+          
+    def __call__(self, qubits, length=1):
+        legits = [q for q in qubits if q < self.legit]
+        for i in range(length):
+            if i % 2 == 0:
+                edges = self._select_edges_top()
+                yield tuple(GateInstruction(tuple(e), self._two_q_gate) for e in edges)
+            else:
+                yield from self._1q(legits, 1)
+    
+    

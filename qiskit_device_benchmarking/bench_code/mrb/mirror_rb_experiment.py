@@ -60,7 +60,7 @@ from qiskit_device_benchmarking.utilities.sampling_utils import (
     EdgeGrabSampler,
     MatchingSampler,
     SingleQubitSampler,
-    OddEvenSampler,
+    TopoSampler,
     NewSampler,
     GateInstruction,
     GateDistribution,
@@ -109,7 +109,7 @@ class MirrorRB(StandardRB):
 
     """
 
-    sampler_map = {"edge_grab": EdgeGrabSampler, "matching": MatchingSampler, "single_qubit": SingleQubitSampler, "new": NewSampler, "chess": OddEvenSampler} 
+    sampler_map = {"edge_grab": EdgeGrabSampler, "matching": MatchingSampler, "single_qubit": SingleQubitSampler, "new": NewSampler, "topo": TopoSampler} 
 
     # pylint: disable=dangerous-default-value
     def __init__(
