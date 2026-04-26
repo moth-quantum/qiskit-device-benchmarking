@@ -594,29 +594,34 @@ class TopoSampler(NewSampler):
     c.f. That connection will be ignored throughout the ._pairs.
     
     **Modes**
-        - 'g2g' (genuine to genuine connection): MWPM on 'true' qubit only.
+        - 'full' (genuine to genuine connection): MWPM on 'true' qubit only.
         Eventually the same as NewSampler. All n / 2 pairs will store in ._pairs.
-        - 'f2f' (fa'q'e to faqe connection): Original square lattice + two fake qubits
-        It will include the fake qubits' connection along with 'g2g', but it won't
-        be included in ._pairs.
-        - 'f2g' (faqe to genuine): MWPM will automatically connect all pairs possible
-        based on the coupling map including fake qubits connected to L/R boundary.
-        Abandoned(?) genuine qubits will be either left on left or right boundary.
+        - 'random': Either of these two logic will randomly happen every even layers.
+            - 'f2f': (fa'q'e to faqe connection): Original square lattice + two fake qubits
+            It will include the fake qubits' connection along with 'g2g', but it won't
+            be included in ._pairs.
+            - 'f2g':  (faqe to genuine): MWPM will automatically connect all pairs possible
+            based on the coupling map including fake qubits connected to L/R boundary.
+            Abandoned(?) genuine qubits will be either left on left or right boundary.
     """
     
-    def __init__(self, legit, mode='g2g', seed=None, **kwargs):
+    # Guideline for ffw: 0.85 (4x4), 0.93 (6x6), 1.0 (8x8)
+    
+    def __init__(self, legit, mode='full', ffw=0.93, seed=None, **kwargs):
         super().__init__(seed=seed, **kwargs)
-        if mode not in ('g2g', 'f2f', 'f2g'):
+        if mode not in ('full', 'random'):
             raise ValueError(f'Check the documentation to set the correct mode.')
         self.legit = legit
         self.mode = mode
+        self.ffw = ffw # ffw x 100 = the edge weight for f2f.
+        # FYI, 0.93 is the sweet spot for 4 x 4 square lattice.
         self._nl = None
         self._nr = None
         self._left_nodes = None
         self._right_nodes = None
 
     @staticmethod
-    def _graph2cmap(g, rng):
+    def _graph2cmap(g, rng, ffw):
         """ Change the coupling maps to the graph for sampling.
         Not only change it but also add fake qubits (faqe) to the graph
         so that behind-the-scene tricks can happen.
@@ -656,10 +661,13 @@ class TopoSampler(NewSampler):
         nl = max(g.nodes) + 1 # faqe on the left side
         nr = nl + 1 # faqe on the right side
         
+        g.add_edge(nl, nr, weight=ffw * 100)
+        # To control 50:50 chance btw f2f vs f2g.
+        
         for n in left_nodes:
-            g.add_edge(nl, n, weight=int(rng.integers(0, 101)))
+            g.add_edge(nl, n, weight=int(rng.integers(1, 101)))
         for n in right_nodes:
-            g.add_edge(nr, n, weight=int(rng.integers(0, 101)))
+            g.add_edge(nr, n, weight=int(rng.integers(1, 101)))
         
         return nl, nr, left_nodes, right_nodes
     
@@ -670,28 +678,20 @@ class TopoSampler(NewSampler):
                        if u < self.legit and v < self.legit]
         
         G = nx.Graph()
-        seen = set()
+        for u, v in legit_edges: 
+            G.add_edge(u, v)
         
-        for u, v in legit_edges:
-            key = (min(u, v), max(u, v))
-            if key not in seen:
-                seen.add(key)
-                G.add_edge(u, v)
+        for u, v, d in G.edges(data=True): # weights added in the prev
+            d['weight'] = int(self._2q._rng.integers(1, 101))
         
-        if self.mode == 'f2g': 
-            self._nl, self._nr, self._left_nodes, self._right_nodes = self._graph2cmap(G, self._2q._rng)
-        elif self.mode == 'f2f':
-            G_tmp = G.copy()
-            _, _, self._left_nodes, self._right_nodes = self._graph2cmap(G_tmp, self._2q._rng)
+        if self.mode == 'random': 
+            self._nl, self._nr, self._left_nodes, self._right_nodes = self._graph2cmap(G, self._2q._rng, self.ffw)
         
-        for u, v, d in G.edges(data=True):
-            if u < self.legit and v < self.legit:
-                d['weight'] = int(self._2q._rng.integers(0, 101))
         matching = nx.max_weight_matching(G, maxcardinality=True)
         
         return [(u, v) if (u, v) in all_edges_set else (v, u)
                 for u, v in matching
-                if u< self.legit and v < self.legit]
+                if u < self.legit and v < self.legit]
     
     def __call__(self, qubits, length=1):
         legits = [q for q in qubits if q < self.legit]

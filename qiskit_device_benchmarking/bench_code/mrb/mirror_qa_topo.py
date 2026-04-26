@@ -12,6 +12,23 @@
 
 from qiskit.transpiler import CouplingMap
 
+from .mirror_qa import MirrorQA
+from qiskit_device_benchmarking.utilities.sampling_utils import TopoSampler
+
+class MirrorQATopo(MirrorQA):
+    def __init__(self, physical_qubits, lengths, sampling_algorithm='topo', mode='full', ffw=0.93, **kwargs):
+        super().__init__(
+            physical_qubits,
+            lengths,
+            sampling_algorithm = sampling_algorithm,
+            sampler_opts = {
+                'legit': len(list(physical_qubits)),
+                'mode': mode, # either 'full' or 'random'
+                'ffw': ffw,
+            },
+            **kwargs
+        )
+
 """
 Utility functions for topological MQA.
 """

@@ -246,7 +246,7 @@ class MirrorRB(StandardRB):
         based on experiment options. This method is currently implemented
         for the default "edge_grab" sampler."""
 
-        if self.experiment_options.sampling_algorithm not in ["edge_grab", "matching", "new", "chess"]:
+        if self.experiment_options.sampling_algorithm not in ["edge_grab", "matching", "new", "chess", "topo"]:
             raise QiskitError(
                 "Unsupported sampling algorithm provided."
             )
