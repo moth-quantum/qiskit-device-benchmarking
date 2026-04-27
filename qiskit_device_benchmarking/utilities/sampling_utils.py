@@ -614,81 +614,55 @@ class TopoSampler(NewSampler):
         self.legit = legit
         self.mode = mode
         self.ffw = ffw # ffw x 100 = the edge weight for f2f.
-        # FYI, 0.93 is the sweet spot for 4 x 4 square lattice.
-        self._nl = None
-        self._nr = None
-        self._left_nodes = None
-        self._right_nodes = None
+        # ffw guideline: 0.85 (4x4), 0.93 (6x6), 1.0 (8x8) — see CLAUDE.md §7.
 
-    @staticmethod
-    def _graph2cmap(g, rng, ffw):
-        """ Change the coupling maps to the graph for sampling.
-        Not only change it but also add fake qubits (faqe) to the graph
-        so that behind-the-scene tricks can happen.
-        """
-        corners = [n for n in g.nodes if g.degree(n) == 2]
-        if len(corners) != 4:
-            raise ValueError(f'Coupling map is not a square lattice with even number of qubits.')
-        
-        corners_dist = {}
-        for j in range(len(corners)):
-            for k in range(j + 1, len(corners)):
-                corners_dist[corners[j], corners[k]] = nx.dijkstra_path_length(
-                    g, corners[j], corners[k]
-                )
-        corner_dist = {
-            ns: d
-            for ns, d in corners_dist.items()
-            if max(corners_dist, key=corners_dist.get)[0] in ns
-            }
-        min_d = min(corner_dist.values())
-        candidates = [pair for pair, d in corner_dist.items() if d == min_d]
-        
-        # determine the left boundary qubits
-        left_corners = candidates[0]
-        for pair in candidates:
-            path = nx.dijkstra_path(g, pair[0], pair[1])
-            diffs = [abs(path[i + 1] - path[i]) for i in range(len(path) - 1)]
-            if max(diffs) > 1: # vertical edge -> column path
-                left_corners = pair
-                break
-        
-        right_corners = tuple(n for n in corners if n not in left_corners)
-        
-        left_nodes = nx.dijkstra_path(g, left_corners[0], left_corners[1])
-        right_nodes = nx.dijkstra_path(g, right_corners[0], right_corners[1])
-        
-        nl = max(g.nodes) + 1 # faqe on the left side
-        nr = nl + 1 # faqe on the right side
-        
-        g.add_edge(nl, nr, weight=ffw * 100)
-        # To control 50:50 chance btw f2f vs f2g.
-        
-        for n in left_nodes:
-            g.add_edge(nl, n, weight=int(rng.integers(1, 101)))
-        for n in right_nodes:
-            g.add_edge(nr, n, weight=int(rng.integers(1, 101)))
-        
-        return nl, nr, left_nodes, right_nodes
-    
     def _select_edges_topo(self):
+        # MirrorRBExperiment hands the sampler `coupling_map.reduce(physical_qubits)`,
+        # which strips fake-qubit edges since faqes aren't physical qubits. So we
+        # build the genuine subgraph from what the sampler sees, then (in 'random'
+        # mode) inject faqe nodes ourselves at index `legit` and `legit+1` and
+        # attach them to the structurally-correct left and right columns.
         all_edges = self._2q.coupling_map.get_edges()
         all_edges_set = set(map(tuple, all_edges))
         legit_edges = [(u, v) for u, v in all_edges
                        if u < self.legit and v < self.legit]
-        
+
         G = nx.Graph()
-        for u, v in legit_edges: 
-            G.add_edge(u, v)
-        
-        for u, v, d in G.edges(data=True): # weights added in the prev
-            d['weight'] = int(self._2q._rng.integers(1, 101))
-        
-        if self.mode == 'random': 
-            self._nl, self._nr, self._left_nodes, self._right_nodes = self._graph2cmap(G, self._2q._rng, self.ffw)
-        
+        G.add_edges_from(legit_edges)
+
+        rng = self._2q._rng
+        for _, _, d in G.edges(data=True):
+            d['weight'] = int(rng.integers(1, 101))
+
+        if self.mode == 'random':
+            # Row-major rectangular grid (CouplingMap.from_grid convention):
+            # corners sit at indices {0, num_cols-1, (num_rows-1)*num_cols, legit-1}.
+            # Sort ascending; corners[1] is the top-right index = num_cols - 1.
+            corners = sorted(n for n in G.nodes if G.degree(n) == 2)
+            if len(corners) != 4:
+                raise ValueError(
+                    f"TopoSampler.mode='random' expects a rectangular lattice "
+                    f"with 4 corners; found {len(corners)}: {corners}"
+                )
+            num_cols = corners[1] + 1
+            num_rows = self.legit // num_cols
+            if num_cols * num_rows != self.legit:
+                raise ValueError(
+                    f"Lattice mismatch: detected num_cols={num_cols} but "
+                    f"legit={self.legit} is not divisible by it."
+                )
+            left_nodes = [num_cols * i for i in range(num_rows)]
+            right_nodes = [(num_cols - 1) + num_cols * i for i in range(num_rows)]
+
+            nl = self.legit
+            nr = self.legit + 1
+            G.add_edge(nl, nr, weight=self.ffw * 100)
+            for n in left_nodes:
+                G.add_edge(nl, n, weight=int(rng.integers(1, 101)))
+            for n in right_nodes:
+                G.add_edge(nr, n, weight=int(rng.integers(1, 101)))
+
         matching = nx.max_weight_matching(G, maxcardinality=True)
-        
         return [(u, v) if (u, v) in all_edges_set else (v, u)
                 for u, v in matching
                 if u < self.legit and v < self.legit]
