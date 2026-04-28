@@ -23,7 +23,7 @@ class MirrorQATopo(MirrorQA):
             sampling_algorithm = sampling_algorithm,
             sampler_opts = {
                 'legit': len(list(physical_qubits)),
-                'mode': mode, # either 'full' or 'random'
+                'mode': mode, # either 'full' or 'random'
                 'ffw': ffw,
             },
             **kwargs
@@ -36,69 +36,80 @@ Utility functions for topological MQA.
 class TopoUtil():
     def __init__():
         None
-        
-    def makeCouple(Lx, Ly, faqe=2, backend="ibm"):
-        """Make the customised coupling map for topological MQA. On the each side (left and right),
-        there live two fake qubits. We call them as 'faqe'. Those will not only be connected to each other,
-        but to qubits that locate on each left and right end of a square lattice.
 
-        Input:
-            - Lx (int): How many qubits on the width?
-            - Ly (int): How many qubits on the height?
-            - faqe (default: 2): The number of 'fake' qubits. They are originally not the part of square lattice.
-            - backend (string): the style guide of a square lattice
+    @staticmethod
+    def makeCouple(num_rows, num_cols, faqe=2, backend="ibm"):
+        """Make the customised coupling map for topological MQA.
 
-        Process:
-            This coupling map is extended from the square lattice, where there are two 'fake qubits' are
-            introduced and both of them are connected to each other. They are not floating around, but
-            they are connected to each left and right side of the lattice, making them some kind of a
-            torus shape.
+        Two fake qubits ('faqes') are grafted onto the left and right columns of an
+        m×n square lattice. Both n×n and m×n aspect ratios are supported.
+        Faqes are connected to each other and to every qubit in their respective
+        boundary column.
 
-        Output:
-            - coop (qiskit.transpiler.CouplingMap)
+        Args:
+            num_rows (int): Number of rows in the grid (≥ 2). Passed as first arg
+                to CouplingMap.from_grid, which uses row-major indexing:
+                node = row * num_cols + col.
+            num_cols (int): Number of columns in the grid (≥ 2). Passed as second
+                arg to CouplingMap.from_grid.
+            faqe (int): Number of fake qubits. Only 2 is supported.
+            backend (str): Device layout style. 'ibm' uses CouplingMap.from_grid.
+
+        Returns:
+            coop (qiskit.transpiler.CouplingMap): Symmetric coupling map with genuine
+                indices 0…num_rows*num_cols-1 and fake indices num_rows*num_cols
+                (nl, left boundary) and num_rows*num_cols+1 (nr, right boundary).
+
+        Raises:
+            ValueError: If dimensions < 2, num_rows*num_cols is odd, or faqe != 2.
+            NotImplementedError: If backend != 'ibm'.
         """
-        if (
-            backend == "ibm"
-        ):  # Stem from the ibm_miami's square lattice + topological MQA approach
-            coop = CouplingMap.from_grid(
-                Lx, Ly, bidirectional=True
-            )  # makes a Lx x Ly rectangular(square?) lattice like IBM.
-            """ This is for the automation that isn't planned yet.
-            for i in range(faqe): # based on the number of fake qubits, add them onto the coupling map.
-                faqe_indices = Lx * Ly + i
-                coop.add_physical_qubit(faqe_indices) # being cautious with the indices of those fake ones.
-            """
-            # Add the physical qubits as qubit indices first.
-            # Calculate each fake qubit's indice.
-            first_faqe = Lx * Ly + 0
-            second_faqe = first_faqe + 1
+        if faqe != 2:
+            raise ValueError(f"Only faqe=2 is supported; got faqe={faqe}.")
+        if num_rows < 2 or num_cols < 2:
+            raise ValueError(
+                f"Grid must be at least 2×2; got {num_rows}×{num_cols}."
+            )
+        n_legit = num_rows * num_cols
+        if n_legit % 2:
+            raise ValueError(
+                f"Grid has {n_legit} genuine qubits (odd number); "
+                f"MWPM requires an even count."
+            )
+
+        if backend == "ibm":
+            # from_grid(num_rows, num_cols) uses row-major indexing:
+            #   node index = row * num_cols + col
+            coop = CouplingMap.from_grid(num_rows, num_cols, bidirectional=True)
+
+            first_faqe  = n_legit      # nl — connected to left column  (col 0)
+            second_faqe = n_legit + 1  # nr — connected to right column (col num_cols-1)
             coop.add_physical_qubit(first_faqe)
             coop.add_physical_qubit(second_faqe)
 
-            # After adding physical qubit... connect them as we intended
-            # Connect the fake qubits first
             coop.add_edge(first_faqe, second_faqe)
-            # And...
-            for i in range(Ly):
-                # ...Connect the left side of the qubit to the square lattice
-                coop.add_edge(
-                    first_faqe, 0 + Lx * i
-                )  # maximum of the i = Ly - 1 so problem solved.
-                # ...Connect the right side of the qubit to the square lattice
-                coop.add_edge(second_faqe, Lx - 1 + Lx * i)
-        elif backend == "iqm":  # Stem from the IQM's square lattice
-            coop = CouplingMap()  # Not added yet!
-        coop.make_symmetric()  # Make all edges bi-directional.
+
+            # Left column:  (row, col=0)         → node = row * num_cols
+            # Right column: (row, col=num_cols-1) → node = num_cols - 1 + row * num_cols
+            for row in range(num_rows):
+                coop.add_edge(first_faqe,  row * num_cols)
+                coop.add_edge(second_faqe, num_cols - 1 + row * num_cols)
+
+        elif backend == "iqm":
+            raise NotImplementedError("IQM backend layout is not yet implemented.")
+
+        coop.make_symmetric()
         return coop
 
+    @staticmethod
     def checkCouple(cmap):
         """
         Input:
             - cmap: (qiskit.transpiler.CouplingMap)
-            
+
         Process:
             Just prints the coupling map via PIL.
-             
+
         Output:
             prints stuff
         """

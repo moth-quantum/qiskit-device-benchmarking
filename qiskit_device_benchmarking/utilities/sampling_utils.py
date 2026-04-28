@@ -641,7 +641,7 @@ class TopoSampler(NewSampler):
             corners = sorted(n for n in G.nodes if G.degree(n) == 2)
             if len(corners) != 4:
                 raise ValueError(
-                    f"TopoSampler.mode='random' expects a rectangular lattice "
+                    f"TopoSampler.mode='random' expects a square lattice."
                     f"with 4 corners; found {len(corners)}: {corners}"
                 )
             num_cols = corners[1] + 1
