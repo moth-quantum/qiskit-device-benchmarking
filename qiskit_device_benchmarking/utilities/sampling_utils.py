@@ -663,9 +663,22 @@ class TopoSampler(NewSampler):
                 G.add_edge(nr, n, weight=int(rng.integers(1, 101)))
 
         matching = nx.max_weight_matching(G, maxcardinality=True)
-        return [(u, v) if (u, v) in all_edges_set else (v, u)
-                for u, v in matching
-                if u < self.legit and v < self.legit]
+        
+        # Added temporary debug line
+        result = [
+            (u, v) if (u, v) in all_edges_set else (v, u)
+            for u, v in matching
+            if u < self.legit and v < self.legit
+        ]
+        result_sampler = [
+            (u, v) if (u, v) in all_edges_set else (v, u)
+            for u, v in matching
+            # if u < self.legit and v < self.legit
+        ]
+        print(
+            f"[TopoSampler] edges selected: {result_sampler}  f2f={len(result) == self.legit // 2}"
+        )
+        return result # But the true result will be hidden entangled qubits with faqe (f2g) or f2f
     
     def __call__(self, qubits, length=1):
         legits = [q for q in qubits if q < self.legit]
