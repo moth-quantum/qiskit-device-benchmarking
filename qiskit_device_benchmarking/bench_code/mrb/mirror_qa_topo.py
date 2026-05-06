@@ -10,9 +10,10 @@
 # copyright notice, and modified files need to carry a notice indicating
 # that they have been altered from the originals.
 
+import networkx as nx
 from qiskit.transpiler import CouplingMap
 
-from .mirror_qa import MirrorQA
+from .mirror_qa import MirrorQA, QuantumAwesomeness
 from qiskit_device_benchmarking.utilities.sampling_utils import TopoSampler
 
 class MirrorQATopo(MirrorQA):
@@ -28,6 +29,75 @@ class MirrorQATopo(MirrorQA):
             },
             **kwargs
         )
+
+    def _sample_sequences(self):
+        # Reset sampler outcome log before each run so stale data never leaks.
+        self._distribution._all_call_outcomes = []
+        sequences = super()._sample_sequences()
+        # With full_sampling=False, the sampler is called once per sample (not per
+        # circuit). _all_call_outcomes has num_samples entries; _pairs has
+        # num_samples * num_lengths entries. Replicate each sample's outcome across
+        # all circuits of that sample so _topo_outcomes[i] aligns with _pairs[i].
+        num_lengths = len(self.experiment_options.lengths)
+        self._topo_outcomes = [
+            call[0]
+            for call in self._distribution._all_call_outcomes
+            for _ in range(num_lengths)
+        ]
+        return sequences
+
+    def bot(self, data):
+        """Topological MWPM bot. Classifies each circuit as topological (f2f) or not (f2g).
+
+        Mirrors the sampler's nl–nr graph structure: genuine edges are weighted by MI,
+        fake boundary edges (nl→left_nodes, nr→right_nodes) are weighted by the circuit's
+        average MI, and the nl–nr edge is weighted by ffw × average MI. This preserves
+        the ffw calibration at all noise levels — when MI collapses to zero at high depth,
+        the bot's classification converges to ~50% topological (random).
+
+        Does NOT use circuit metadata (exp._pairs / exp._singles).
+
+        Args:
+            data: list of circuit result dicts from experiment_data.data().
+
+        Returns:
+            is_topo (list[bool]): True if nl–nr in MWPM matching (topological) per circuit.
+            boundary (tuple): (left_nodes, right_nodes) from the sampler.
+        """
+        import numpy as np
+
+        sampler = self._distribution
+        left_nodes = sampler._left_nodes
+        right_nodes = sampler._right_nodes
+        ffw = sampler.ffw
+        nl = sampler.legit
+        nr = sampler.legit + 1
+
+        genuine_edges = list(sampler._2q.coupling_map.get_edges())
+        qa = QuantumAwesomeness(genuine_edges)
+
+        is_topo = []
+        for circ_data in data:
+            mi_dict = qa.mutual_info([circ_data])[0]  # {(j,k): float} for j < k
+
+            avg_mi = np.mean(list(mi_dict.values())) if mi_dict else 1.0
+
+            G = nx.Graph()
+            for (q0, q1), mi_val in mi_dict.items():
+                G.add_edge(q0, q1, weight=mi_val)
+
+            # Inject fake boundary nodes — same topology as the sampler.
+            # Fake edge weights scale with avg_mi so the ffw ratio is preserved.
+            G.add_edge(nl, nr, weight=ffw * avg_mi)
+            for j in left_nodes:
+                G.add_edge(nl, j, weight=avg_mi)
+            for k in right_nodes:
+                G.add_edge(nr, k, weight=avg_mi)
+
+            matching = nx.max_weight_matching(G, maxcardinality=True, weight='weight')
+            is_topo.append(frozenset({nl, nr}) in {frozenset(e) for e in matching})
+
+        return is_topo, (left_nodes, right_nodes)
 
 """
 Utility functions for topological MQA.
@@ -82,18 +152,28 @@ class TopoUtil():
             #   node index = row * num_cols + col
             coop = CouplingMap.from_grid(num_rows, num_cols, bidirectional=True)
 
-            first_faqe  = n_legit      # nl — connected to left column  (col 0)
-            second_faqe = n_legit + 1  # nr — connected to right column (col num_cols-1)
+            first_faqe  = n_legit      # nl — connected to first shorter boundary
+            second_faqe = n_legit + 1  # nr — connected to second shorter boundary
             coop.add_physical_qubit(first_faqe)
             coop.add_physical_qubit(second_faqe)
 
             coop.add_edge(first_faqe, second_faqe)
 
-            # Left column:  (row, col=0)         → node = row * num_cols
-            # Right column: (row, col=num_cols-1) → node = num_cols - 1 + row * num_cols
-            for row in range(num_rows):
-                coop.add_edge(first_faqe,  row * num_cols)
-                coop.add_edge(second_faqe, num_cols - 1 + row * num_cols)
+            # Connect fake qubits to the shorter boundary sides.
+            # node = row * num_cols + col  (row-major indexing from CouplingMap.from_grid)
+            # For square grids, _find_boundary_nodes picks top/bottom rows (sorted corner
+            # (0,3) found before (0,12)); makeCouple must match that choice.
+            if num_rows < num_cols:
+                # Strictly shorter sides are left/right columns
+                for row in range(num_rows):
+                    coop.add_edge(first_faqe,  row * num_cols)
+                    coop.add_edge(second_faqe, num_cols - 1 + row * num_cols)
+            else:
+                # num_rows > num_cols: strictly shorter top/bottom rows
+                # num_rows == num_cols: square — matches _find_boundary_nodes (top/bottom rows)
+                for col in range(num_cols):
+                    coop.add_edge(first_faqe,  col)
+                    coop.add_edge(second_faqe, (num_rows - 1) * num_cols + col)
 
         elif backend == "iqm":
             raise NotImplementedError("IQM backend layout is not yet implemented.")
@@ -114,3 +194,5 @@ class TopoUtil():
             prints stuff
         """
         return cmap.draw()  # draws the manual coupling map for topological MQA.
+
+

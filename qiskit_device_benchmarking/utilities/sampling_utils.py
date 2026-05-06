@@ -577,6 +577,57 @@ class NewSampler(MatchingSampler):
                 # Pure 1Q layer: independent Clifford on every qubit
                 yield from self._1q(qubits, 1)
 
+
+def _find_boundary_nodes(G):
+    """Return the two shorter-side boundary node lists of a rectangular grid graph.
+
+    Uses Dijkstra distances between the four degree-2 corners to identify the
+    shorter sides without assuming any node-index ordering, matching graphs.ipynb.
+    Must be called on a graph with no edge weights assigned yet — Dijkstra on an
+    unweighted graph reduces to hop-count BFS. Works on any m x n rectangular
+    lattice; for square grids the tie-break is deterministic (insertion order of
+    the sorted corner list).
+
+    The returned lists are labelled 'left' and 'right' by convention. On a
+    rectangular grid they may physically correspond to left/right columns or
+    top/bottom rows depending on which dimension is shorter. The topological
+    analysis is identical either way.
+
+    Args:
+        G: NetworkX undirected graph of genuine qubits only (no fake nodes).
+
+    Returns:
+        (left_nodes, right_nodes): node-index lists along the two shorter sides.
+
+    Raises:
+        ValueError: if node count is odd or corner count != 4.
+    """
+    if len(G.nodes) % 2:
+        raise ValueError("Graph has an odd number of nodes -- incompatible with MWPM.")
+    corners = sorted(n for n in G.nodes if G.degree(n) == 2)
+    if len(corners) != 4:
+        raise ValueError(
+            f"Expected exactly 4 degree-2 corners for a rectangular grid; "
+            f"found {len(corners)}: {corners}. "
+            f"Toroidal or irregular coupling maps are not supported."
+        )
+    corners_dist = {}
+    for j in range(4):
+        for k in range(j + 1, 4):
+            corners_dist[(corners[j], corners[k])] = nx.dijkstra_path_length(
+                G, corners[j], corners[k]
+            )
+    # The pair with maximum distance are diagonally opposite corners.
+    max_pair = max(corners_dist, key=corners_dist.get)
+    # From one diagonal endpoint, the closest other corner defines the short side.
+    corner_dist = {ns: d for ns, d in corners_dist.items() if max_pair[0] in ns}
+    left_corners = min(corner_dist, key=corner_dist.get)
+    right_corners = tuple(n for n in corners if n not in left_corners)
+    left_nodes = nx.dijkstra_path(G, left_corners[0], left_corners[1])
+    right_nodes = nx.dijkstra_path(G, right_corners[0], right_corners[1])
+    return left_nodes, right_nodes
+
+
 class TopoSampler(NewSampler):
     """Like NewSampler, this also produces 2q-1q-2q-1q-... pattern.
     
@@ -587,10 +638,10 @@ class TopoSampler(NewSampler):
     possible pairs must be selected. e.g. 4x4 -> 8 pairs in the outermost.
     
     However, TopoSampler is the advanced version of NewSampler.
-    Now, it will contain false qubits and their connections toward the edge of
-    left and right side of the device map. This one will intentionally exclude
-    None (full matching) or one qubit on the edge, making the fake connection.
-    
+    Now, it will contain false qubits and their connections toward the
+    shorter boundary sides of the device map. This one will intentionally
+    exclude None (full matching) or one qubit on the boundary, making
+    the fake connection.
     c.f. That connection will be ignored throughout the ._pairs.
     
     **Modes**
@@ -601,27 +652,34 @@ class TopoSampler(NewSampler):
             It will include the fake qubits' connection along with 'g2g', but it won't
             be included in ._pairs.
             - 'f2g':  (faqe to genuine): MWPM will automatically connect all pairs possible
-            based on the coupling map including fake qubits connected to L/R boundary.
-            Abandoned(?) genuine qubits will be either left on left or right boundary.
+            based on the coupling map including fake qubits connected to the shorter
+            boundary sides. Abandoned genuine qubits will be on those boundaries.
+
+    Boundary detection uses Dijkstra shortest paths between degree-2 corners --
+    no index-ordering assumption. 'Left' and 'right' labels are conventions;
+    on a non-square grid they land on whichever dimension is shorter.
+
+    ffw guideline (ffw x 100 = MWPM weight of the nl-nr edge):
+        4-node boundary  (4x4):   ffw = 0.85  ->  ~55% f2f
+        6-node boundary  (6x6):   ffw = 0.93  ->  ~49% f2f
+        8-node boundary  (8x8):   ffw = 1.0   ->  ~48% f2f
+        10-node boundary (10x12): ffw = 1.3   ->  ~50% f2f  (from graphs.ipynb)
     """
-    
-    # Guideline for ffw: 0.85 (4x4), 0.93 (6x6), 1.0 (8x8)
-    
     def __init__(self, legit, mode='full', ffw=0.93, seed=None, **kwargs):
         super().__init__(seed=seed, **kwargs)
         if mode not in ('full', 'random'):
             raise ValueError(f'Check the documentation to set the correct mode.')
         self.legit = legit
         self.mode = mode
-        self.ffw = ffw # ffw x 100 = the edge weight for f2f.
-        # ffw guideline: 0.85 (4x4), 0.93 (6x6), 1.0 (8x8) — see CLAUDE.md §7.
+        self.ffw = ffw  # ffw x 100 = MWPM weight of the nl-nr (f2f) edge
+        self._all_call_outcomes = []  # populated by __call__; read by MirrorQATopo
+        self._left_nodes = None   # lazily set on first _select_edges_topo call
+        self._right_nodes = None  # None when mode='full' (no boundary injection needed)
 
     def _select_edges_topo(self):
-        # MirrorRBExperiment hands the sampler `coupling_map.reduce(physical_qubits)`,
-        # which strips fake-qubit edges since faqes aren't physical qubits. So we
-        # build the genuine subgraph from what the sampler sees, then (in 'random'
-        # mode) inject faqe nodes ourselves at index `legit` and `legit+1` and
-        # attach them to the structurally-correct left and right columns.
+        # ── 1. GENUINE SUBGRAPH ──────────────────────────────────────────────
+        # coupling_map.reduce() strips fake-qubit edges before the sampler
+        # receives it, so all_edges here contains only genuine qubit pairs.
         all_edges = self._2q.coupling_map.get_edges()
         all_edges_set = set(map(tuple, all_edges))
         legit_edges = [(u, v) for u, v in all_edges
@@ -630,34 +688,24 @@ class TopoSampler(NewSampler):
         G = nx.Graph()
         G.add_edges_from(legit_edges)
 
+        # ── 2. BOUNDARY DETECTION (must run before weight assignment) ────────
+        # Dijkstra on unweighted graph = hop-count BFS — matches graphs.ipynb.
+        # Cached after first call; skipped for mode='full'.
+        if self.mode == 'random':
+            if self._left_nodes is None:
+                self._left_nodes, self._right_nodes = _find_boundary_nodes(G)
+            left_nodes, right_nodes = self._left_nodes, self._right_nodes
+
+        # ── 3. WEIGHT ASSIGNMENT (genuine edges — uniform random) ────────────
         rng = self._2q._rng
         for _, _, d in G.edges(data=True):
             d['weight'] = int(rng.integers(1, 101))
 
+        # ── 4. FAKE NODE INJECTION (mode='random' only) ──────────────────────
+        # nl–nr edge weight = ffw×100.  Boundary fake edges: uniform random.
+        # MWPM outcome → f2f: nl–nr wins, all n genuine qubits paired.
+        #               → f2g: nl/nr pair with boundary, 2 genuine qubits abandoned.
         if self.mode == 'random':
-            # This is suitable for the 'Row-major' rectangular/square grid (CouplingMap.from_grid convention):
-            
-            # corners sit at indices {0, num_cols-1, (num_rows-1)*num_cols, legit-1}.
-            # Sort ascending; corners[1] is the top-right index = num_cols - 1.
-            
-            # Basically it's trying to figure out the correct square lattice, even it's not determined from real QPU.
-            # It's compatible with whatever m x n square lattice because it won't be restricted by the m = n condition.
-            corners = sorted(n for n in G.nodes if G.degree(n) == 2)
-            if len(corners) != 4:
-                raise ValueError(
-                    f"TopoSampler wants to work with a square lattice."
-                    f"...with 4 corners (ofc); found {len(corners)}: {corners}"
-                )
-            num_cols = corners[1] + 1
-            num_rows = self.legit // num_cols
-            if num_cols * num_rows != self.legit:
-                raise ValueError(
-                    f"Mismatch on square Lattice: detected num_cols={num_cols} but "
-                    f"legit={self.legit} is not divisible by it."
-                )
-            left_nodes = [num_cols * i for i in range(num_rows)]
-            right_nodes = [(num_cols - 1) + num_cols * i for i in range(num_rows)]
-
             nl = self.legit
             nr = self.legit + 1
             G.add_edge(nl, nr, weight=self.ffw * 100)
@@ -666,32 +714,37 @@ class TopoSampler(NewSampler):
             for n in right_nodes:
                 G.add_edge(nr, n, weight=int(rng.integers(1, 101)))
 
+        # ── 5. MWPM → extract genuine pairs ─────────────────────────────────
         matching = nx.max_weight_matching(G, maxcardinality=True)
-        
-        result = [
+
+        genuine = [
             (u, v) if (u, v) in all_edges_set else (v, u)
             for u, v in matching
             if u < self.legit and v < self.legit
         ]
-        
-        # == Added temporary debug line ==
-        result_sampler = [
-            (u, v) if (u, v) in all_edges_set else (v, u)
+        # Full matching as list of (int, int) tuples — same format as ._pairs[s].
+        # Genuine edges use canonical coupling-map direction; fake edges use (min, max).
+        self._last_outcome = [
+            (u, v) if (u, v) in all_edges_set
+            else (v, u) if (v, u) in all_edges_set
+            else (min(u, v), max(u, v))
             for u, v in matching
-            # if u < self.legit and v < self.legit
         ]
-        print(
-            f"[TopoSampler] edges selected: {result_sampler}  f2f={len(result) == self.legit // 2}"
-        )
-        # =================================
-        return result # But the true result will be hidden entangled qubits with faqe (f2g) or f2f
-    
+        return genuine
+
     def __call__(self, qubits, length=1):
         legits = [q for q in qubits if q < self.legit]
+        call_outcomes = []
         for i in range(length):
             if i % 2 == 0:
+                # EVEN LAYER — pure 2Q: CX on all MWPM-matched genuine edges.
                 edges = self._select_edges_topo()
+                call_outcomes.append(self._last_outcome)
                 yield tuple(GateInstruction(tuple(e), self._two_q_gate) for e in edges)
             else:
+                # ODD LAYER — pure 1Q: independent Clifford on every genuine qubit.
                 yield from self._1q(legits, 1)
+        # Appended once generator is fully consumed (list() in _sample_sequences).
+        # MirrorQATopo._sample_sequences reads _all_call_outcomes → _topo_outcomes.
+        self._all_call_outcomes.append(call_outcomes)
         
