@@ -635,20 +635,24 @@ class TopoSampler(NewSampler):
             d['weight'] = int(rng.integers(1, 101))
 
         if self.mode == 'random':
-            # Row-major rectangular grid (CouplingMap.from_grid convention):
+            # This is suitable for the 'Row-major' rectangular/square grid (CouplingMap.from_grid convention):
+            
             # corners sit at indices {0, num_cols-1, (num_rows-1)*num_cols, legit-1}.
             # Sort ascending; corners[1] is the top-right index = num_cols - 1.
+            
+            # Basically it's trying to figure out the correct square lattice, even it's not determined from real QPU.
+            # It's compatible with whatever m x n square lattice because it won't be restricted by the m = n condition.
             corners = sorted(n for n in G.nodes if G.degree(n) == 2)
             if len(corners) != 4:
                 raise ValueError(
-                    f"TopoSampler.mode='random' expects a square lattice."
-                    f"with 4 corners; found {len(corners)}: {corners}"
+                    f"TopoSampler wants to work with a square lattice."
+                    f"...with 4 corners (ofc); found {len(corners)}: {corners}"
                 )
             num_cols = corners[1] + 1
             num_rows = self.legit // num_cols
             if num_cols * num_rows != self.legit:
                 raise ValueError(
-                    f"Lattice mismatch: detected num_cols={num_cols} but "
+                    f"Mismatch on square Lattice: detected num_cols={num_cols} but "
                     f"legit={self.legit} is not divisible by it."
                 )
             left_nodes = [num_cols * i for i in range(num_rows)]
@@ -664,12 +668,13 @@ class TopoSampler(NewSampler):
 
         matching = nx.max_weight_matching(G, maxcardinality=True)
         
-        # Added temporary debug line
         result = [
             (u, v) if (u, v) in all_edges_set else (v, u)
             for u, v in matching
             if u < self.legit and v < self.legit
         ]
+        
+        # == Added temporary debug line ==
         result_sampler = [
             (u, v) if (u, v) in all_edges_set else (v, u)
             for u, v in matching
@@ -678,6 +683,7 @@ class TopoSampler(NewSampler):
         print(
             f"[TopoSampler] edges selected: {result_sampler}  f2f={len(result) == self.legit // 2}"
         )
+        # =================================
         return result # But the true result will be hidden entangled qubits with faqe (f2g) or f2f
     
     def __call__(self, qubits, length=1):
