@@ -46,59 +46,6 @@ class MirrorQATopo(MirrorQA):
         ]
         return sequences
 
-    def bot(self, data):
-        """Topological MWPM bot. Classifies each circuit as topological (f2f) or not (f2g).
-
-        Mirrors the sampler's nl–nr graph structure: genuine edges are weighted by MI,
-        fake boundary edges (nl→left_nodes, nr→right_nodes) are weighted by the circuit's
-        average MI, and the nl–nr edge is weighted by ffw × average MI. This preserves
-        the ffw calibration at all noise levels — when MI collapses to zero at high depth,
-        the bot's classification converges to ~50% topological (random).
-
-        Does NOT use circuit metadata (exp._pairs / exp._singles).
-
-        Args:
-            data: list of circuit result dicts from experiment_data.data().
-
-        Returns:
-            is_topo (list[bool]): True if nl–nr in MWPM matching (topological) per circuit.
-            boundary (tuple): (left_nodes, right_nodes) from the sampler.
-        """
-        import numpy as np
-
-        sampler = self._distribution
-        left_nodes = sampler._left_nodes
-        right_nodes = sampler._right_nodes
-        ffw = sampler.ffw
-        nl = sampler.legit
-        nr = sampler.legit + 1
-
-        genuine_edges = list(sampler._2q.coupling_map.get_edges())
-        qa = QuantumAwesomeness(genuine_edges)
-
-        is_topo = []
-        for circ_data in data:
-            mi_dict = qa.mutual_info([circ_data])[0]  # {(j,k): float} for j < k
-
-            avg_mi = np.mean(list(mi_dict.values())) if mi_dict else 1.0
-
-            G = nx.Graph()
-            for (q0, q1), mi_val in mi_dict.items():
-                G.add_edge(q0, q1, weight=mi_val)
-
-            # Inject fake boundary nodes — same topology as the sampler.
-            # Fake edge weights scale with avg_mi so the ffw ratio is preserved.
-            G.add_edge(nl, nr, weight=ffw * avg_mi)
-            for j in left_nodes:
-                G.add_edge(nl, j, weight=avg_mi)
-            for k in right_nodes:
-                G.add_edge(nr, k, weight=avg_mi)
-
-            matching = nx.max_weight_matching(G, maxcardinality=True, weight='weight')
-            is_topo.append(frozenset({nl, nr}) in {frozenset(e) for e in matching})
-
-        return is_topo, (left_nodes, right_nodes)
-
 """
 Utility functions for topological MQA.
 """
