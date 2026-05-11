@@ -562,7 +562,7 @@ class MirrorRB(StandardRB):
             if len(elem.qargs) == 1 and np.issubdtype(type(elem.op), int):
                 inverse_layer.append(GateInstruction(elem.qargs, inverse_1q(elem.op)))
         for elem in layer: # then two qubit qubit
-            if len(elem.qargs) == 2 and elem.op in _self_adjoint_gates:
+            if len(elem.qargs) == 2 and type(elem.op) in _self_adjoint_gates:
                 inverse_layer.append(elem)
             elif not (len(elem.qargs) == 1 and np.issubdtype(type(elem.op), int)):
                 try:

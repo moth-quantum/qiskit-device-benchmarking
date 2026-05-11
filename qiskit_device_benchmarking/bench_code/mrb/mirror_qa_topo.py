@@ -34,15 +34,17 @@ class MirrorQATopo(MirrorQA):
         # Reset sampler outcome log before each run so stale data never leaks.
         self._distribution._all_call_outcomes = []
         sequences = super()._sample_sequences()
-        # With full_sampling=False, the sampler is called once per sample (not per
-        # circuit). _all_call_outcomes has num_samples entries; _pairs has
-        # num_samples * num_lengths entries. Replicate each sample's outcome across
-        # all circuits of that sample so _topo_outcomes[i] aligns with _pairs[i].
-        num_lengths = len(self.experiment_options.lengths)
+        # With full_sampling=False the sampler is called once per sample. The
+        # NewSampler reordering reverses the 2Q-layer stack in each half, so the
+        # first gate layer of a length-L circuit is the last 2Q layer of the
+        # un-reordered forward half — at call_outcomes index (L//2 - 1)//2.
+        # Lengths 2,4 both map to index 0 (single-element 2Q sub-list, no flip);
+        # lengths 6,8 both map to index 1; etc.  Iterating over lengths (not a
+        # fixed repeat count) keeps _topo_outcomes[i] aligned with _pairs[i].
         self._topo_outcomes = [
-            call[0]
+            call[(length // 2 - 1) // 2]
             for call in self._distribution._all_call_outcomes
-            for _ in range(num_lengths)
+            for length in self.experiment_options.lengths
         ]
         return sequences
 
@@ -51,8 +53,8 @@ Utility functions for topological MQA.
 """
 
 class TopoUtil():
-    def __init__():
-        None
+    def __init__(self):
+        pass
 
     @staticmethod
     def makeCouple(num_rows, num_cols, faqe=2, backend="ibm"):
