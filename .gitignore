@@ -162,3 +162,4 @@ cython_debug/
 .DS_Store
 CLAUDE.md
 CLAUDE.md
+/topo_ckpt

@@ -374,7 +374,7 @@ class MirrorRB(StandardRB):
             # off
             if not self.experiment_options.full_sampling:
                 if isinstance(self._distribution, NewSampler) and any(self._angles):
-                    # ====== NewSampler ONLY ======
+                    # ====== NewSampler and TopoSampler which inherited NewSampler ONLY ======
                     # The original reordering (j%2) breaks on truncated
                     # Pauli-interleaved sequences. Instead: work on pure
                     # Cliffords, then wrap Paulis after.
