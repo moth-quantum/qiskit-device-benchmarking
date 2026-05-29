@@ -596,7 +596,14 @@ class MirrorRB(StandardRB):
         except AttributeError:
             durations = self.backend.instruction_durations
 
-        pulse_alignment = BackendData(self.backend).pulse_alignment
+        try:
+            # Newer qiskit_experiments BackendData dropped pulse_alignment;
+            # the value lives on the backend Target.
+            pulse_alignment = BackendData(self.backend).pulse_alignment
+        except AttributeError:
+            pulse_alignment = getattr(
+                getattr(self.backend, "target", None), "pulse_alignment", 1
+            )
 
         if getattr(self.run_options, "dd") == "xx":
             dd_sequence = [XGate(), XGate()]
